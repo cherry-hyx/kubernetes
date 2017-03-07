@@ -25,7 +25,6 @@ import (
 	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/cloudprovider"
-	"strconv"
 	"strings"
 )
 
@@ -82,124 +81,20 @@ type AnnotationRequest struct {
 	HealthCheckTimeout        int                 // for https and http
 }
 
-func (s *SDKClientSLB) ExtractAnnotationRequest(service *v1.Service) *AnnotationRequest {
-	ar := &AnnotationRequest{}
-	annotation := service.Annotations
-
-	i, err := strconv.Atoi(annotation[ServiceAnnotationLoadBalancerBandwidth])
-	if err != nil {
-		glog.Errorf("Warining: Annotation bandwidth must be integer,got [%s],use default number 50.",
-			annotation[ServiceAnnotationLoadBalancerBandwidth])
-		ar.Bandwidth = DEFAULT_BANDWIDTH
-	} else {
-		ar.Bandwidth = i
-	}
-	addtype := annotation[ServiceAnnotationLoadBalancerAddressType]
-	if addtype != "" {
-		ar.AddressType = slb.AddressType(addtype)
-	} else {
-		ar.AddressType = slb.InternetAddressType
-	}
-
-	chargtype := annotation[ServiceAnnotationLoadBalancerChargeType]
-	if chargtype != "" {
-		ar.ChargeType = slb.InternetChargeType(chargtype)
-	} else {
-		ar.ChargeType = slb.PayByTraffic
-	}
-
-	region := annotation[ServiceAnnotationLoadBalancerRegion]
-	if region != "" {
-		ar.Region = common.Region(region)
-	} else {
-		ar.Region = s.RegionId
-	}
-
-	certid := annotation[ServiceAnnotationLoadBalancerCertID]
-	if certid != "" {
-		ar.CertID = certid
-	}
-
-	hcFlag := annotation[ServiceAnnotationLoadBalancerHealthCheckFlag]
-	if hcFlag != "" {
-		ar.HealthCheck = slb.FlagType(hcFlag)
-	} else {
-		ar.HealthCheck = slb.OffFlag
-	}
-
-	hcType := annotation[ServiceAnnotationLoadBalancerHealthCheckType]
-	if hcType != "" {
-		ar.HealthCheckType = slb.HealthCheckType(hcType)
-	} else {
-		ar.HealthCheckType = slb.TCPHealthCheckType
-	}
-
-	hcUri := annotation[ServiceAnnotationLoadBalancerHealthCheckURI]
-	if hcUri != "" {
-		ar.HealthCheckURI = hcUri
-	} else {
-		ar.HealthCheckURI = "/"
-	}
-
-	port, err := strconv.Atoi(annotation[ServiceAnnotationLoadBalancerHealthCheckConnectPort])
-	if err != nil {
-		ar.HealthCheckConnectPort = -520
-	} else {
-		ar.HealthCheckConnectPort = port
-	}
-
-	thresh, err := strconv.Atoi(annotation[ServiceAnnotationLoadBalancerHealthCheckHealthyThreshold])
-	if err != nil {
-		ar.HealthyThreshold = 3
-	} else {
-		ar.HealthyThreshold = thresh
-	}
-
-	unThresh, err := strconv.Atoi(annotation[ServiceAnnotationLoadBalancerHealthCheckUnhealthyThreshold])
-	if err != nil {
-		ar.UnhealthyThreshold = 3
-	} else {
-		ar.UnhealthyThreshold = unThresh
-	}
-
-	interval, err := strconv.Atoi(annotation[ServiceAnnotationLoadBalancerHealthCheckInterval])
-	if err != nil {
-		ar.HealthCheckInterval = 2
-	} else {
-		ar.HealthCheckInterval = interval
-	}
-
-	connout, err := strconv.Atoi(annotation[ServiceAnnotationLoadBalancerHealthCheckConnectTimeout])
-	if err != nil {
-		ar.HealthCheckConnectTimeout = 5
-	} else {
-		ar.HealthCheckConnectTimeout = connout
-	}
-
-	hout, err := strconv.Atoi(annotation[ServiceAnnotationLoadBalancerHealthCheckTimeout])
-	if err != nil {
-		ar.HealthCheckTimeout = 5
-	} else {
-		ar.HealthCheckConnectPort = hout
-	}
-	return ar
-}
-
 type SDKClientSLB struct {
 	c        *slb.Client
-	RegionId common.Region
 }
 
-func NewSDKClientSLB(region common.Region, key string, secret string) *SDKClientSLB {
+func NewSDKClientSLB( key string, secret string) *SDKClientSLB {
 	return &SDKClientSLB{
-		RegionId: region,
 		c:        slb.NewClient(key, secret),
 	}
 }
-func (s *SDKClientSLB) GetLoadBalancerByName(lbn string) (*slb.LoadBalancerType, bool, error) {
+func (s *SDKClientSLB) GetLoadBalancerByName(lbn string,service *v1.Service) (*slb.LoadBalancerType, bool, error) {
+	ar := ExtractAnnotationRequest(service)
 	lbs, err := s.c.DescribeLoadBalancers(
 		&slb.DescribeLoadBalancersArgs{
-			RegionId:         s.RegionId,
+			RegionId:         ar.Region,
 			LoadBalancerName: lbn,
 		},
 	)
@@ -223,7 +118,7 @@ func (s *SDKClientSLB) GetLoadBalancerByName(lbn string) (*slb.LoadBalancerType,
 
 func (s *SDKClientSLB) EnsureLoadBalancer(service *v1.Service, nodes []*v1.Node) (*slb.LoadBalancerType, error) {
 	lbn := cloudprovider.GetLoadBalancerName(service)
-	lb, exists, err := s.GetLoadBalancerByName(lbn)
+	lb, exists, err := s.GetLoadBalancerByName(lbn, service)
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +167,6 @@ func (s *SDKClientSLB) EnsureLoadBalancer(service *v1.Service, nodes []*v1.Node)
 			}
 		}
 	}
-	fmt.Printf("Alicloud.EnsureLoadBalancer() create LoadBalancer step 1:[%+v]\n", lb)
 	glog.Infof("Alicloud.EnsureLoadBalancer() create LoadBalancer step 1:[%+v]\n", lb)
 
 	if _, err := s.EnsureLoadBalancerListener(service, lb); err != nil {
@@ -285,7 +179,7 @@ func (s *SDKClientSLB) EnsureLoadBalancer(service *v1.Service, nodes []*v1.Node)
 
 func (s *SDKClientSLB) UpdateLoadBalancer(service *v1.Service, nodes []*v1.Node) error {
 	lbn := cloudprovider.GetLoadBalancerName(service)
-	lb, exists, err := s.GetLoadBalancerByName(lbn)
+	lb, exists, err := s.GetLoadBalancerByName(lbn,service)
 	if err != nil {
 		return err
 	}
@@ -364,7 +258,7 @@ func (s *SDKClientSLB) diffListeners(service *v1.Service, lb *slb.LoadBalancerTy
 	lp := lb.ListenerPortsAndProtocol.ListenerPortAndProtocol
 	additions, deletions := []PortListener{}, []PortListener{}
 
-	ar := s.ExtractAnnotationRequest(service)
+	ar := ExtractAnnotationRequest(service)
 	stickSession := slb.OffFlag
 	// find additions
 	for _, v1 := range service.Spec.Ports {
@@ -488,8 +382,8 @@ func (s *SDKClientSLB) findPortListener(lb *slb.LoadBalancerType, port int, prot
 			HealthyThreshold:          p.HealthyThreshold,
 			UnhealthyThreshold:        p.UnhealthyThreshold,
 			HealthCheckInterval:       p.HealthCheckInterval,
-			HealthCheckConnectTimeout: p.HealthCheckTimeout,
-			HealthCheckTimeout:        p.HealthCheckTimeout,
+			HealthCheckConnectTimeout: p.HealthCheckConnectTimeout,
+			HealthCheckTimeout:        p.HealthCheckConnectTimeout,
 		}, nil
 	case "https":
 		p, err := s.c.DescribeLoadBalancerHTTPSListenerAttribute(lb.LoadBalancerId, port)
@@ -531,13 +425,14 @@ func (s *SDKClientSLB) findPortListener(lb *slb.LoadBalancerType, port int, prot
 			HealthyThreshold:    p.HealthyThreshold,
 			UnhealthyThreshold:  p.UnhealthyThreshold,
 			HealthCheckInterval: p.HealthCheckInterval,
-			HealthCheckTimeout:  p.HealthCheckTimeout,
+			HealthCheckTimeout:  p.HealthCheckConnectTimeout,
 		}, nil
 	}
 	return PortListener{}, errors.New(fmt.Sprintf("protocol not match: %s", proto))
 }
 
 func (s *SDKClientSLB) EnsureBackendServer(service *v1.Service, nodes []*v1.Node, lb *slb.LoadBalancerType) (*slb.LoadBalancerType, error) {
+
 	additions, deletions := s.diffServers(nodes, lb)
 	glog.Infof("Alicloud.EnsureBackendServer() Add additional BackendServers:[%+v],  Delete removed BackendServers[%+v]", additions, deletions)
 	if len(additions) > 0 {
@@ -561,7 +456,7 @@ func (s *SDKClientSLB) EnsureBackendServer(service *v1.Service, nodes []*v1.Node
 
 func (s *SDKClientSLB) EnsureLoadBalanceDeleted(service *v1.Service) error {
 
-	lb, exists, err := s.GetLoadBalancerByName(cloudprovider.GetLoadBalancerName(service))
+	lb, exists, err := s.GetLoadBalancerByName(cloudprovider.GetLoadBalancerName(service), service)
 	if err != nil {
 		return err
 	}
@@ -649,7 +544,7 @@ func (s *SDKClientSLB) createListener(lb *slb.LoadBalancerType, pp PortListener)
 				HealthCheckConnectPort: pp.HealthCheckConnectPort,
 				HealthyThreshold:       pp.HealthyThreshold,
 				UnhealthyThreshold:     pp.UnhealthyThreshold,
-				HealthCheckTimeout:     pp.HealthCheckConnectTimeout,
+				HealthCheckConnectTimeout:     pp.HealthCheckConnectTimeout,
 				HealthCheckInterval:    pp.HealthCheckInterval,
 			}); err != nil {
 			return err
@@ -667,7 +562,7 @@ func (s *SDKClientSLB) createListener(lb *slb.LoadBalancerType, pp PortListener)
 				HealthCheckConnectPort: pp.HealthCheckConnectPort,
 				HealthyThreshold:       pp.HealthyThreshold,
 				UnhealthyThreshold:     pp.UnhealthyThreshold,
-				HealthCheckTimeout:     pp.HealthCheckTimeout,
+				HealthCheckConnectTimeout:     pp.HealthCheckTimeout,
 				HealthCheckInterval:    pp.HealthCheckInterval,
 			}); err != nil {
 			return err
@@ -679,7 +574,7 @@ func (s *SDKClientSLB) createListener(lb *slb.LoadBalancerType, pp PortListener)
 
 func (s *SDKClientSLB) getLoadBalancerOpts(service *v1.Service) *slb.CreateLoadBalancerArgs {
 
-	ar := s.ExtractAnnotationRequest(service)
+	ar := ExtractAnnotationRequest(service)
 	return &slb.CreateLoadBalancerArgs{
 		AddressType:        ar.AddressType,
 		InternetChargeType: ar.ChargeType,

@@ -50,6 +50,7 @@ var cloudproviders = []string{
 	"photon",
 	"rackspace",
 	"vsphere",
+	"alicloud",
 }
 
 func ValidateMasterConfiguration(c *kubeadm.MasterConfiguration) field.ErrorList {

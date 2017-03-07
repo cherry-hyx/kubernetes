@@ -164,9 +164,11 @@ func (rc *RouteController) reconcile(nodes []*v1.Node, routes []*cloudprovider.R
 			}
 		}
 		nodeCIDRs[nodeName] = node.Spec.PodCIDR
+		glog.V(2).Infof("NodeCIDR cache: cache key:%s, value:%+v\n",nodeName,node.Spec.PodCIDR)
 	}
 	for _, route := range routes {
 		if rc.isResponsibleForRoute(route) {
+			glog.V(2).Infof("NodeCIDR cache: detect delete route, %v\n",route)
 			// Check if this route applies to a node we know about & has correct CIDR.
 			if nodeCIDRs[route.TargetNode] != route.DestinationCIDR {
 				wg.Add(1)

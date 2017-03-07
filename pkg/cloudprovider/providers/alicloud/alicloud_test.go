@@ -19,11 +19,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/denverdino/aliyungo/slb"
-	"k8s.io/kubernetes/pkg/api/v1"
-	"k8s.io/kubernetes/pkg/types"
-	"k8s.io/kubernetes/pkg/util/intstr"
 	"strings"
 	"testing"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/kubernetes/pkg/api/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var keyid string = "LTAIdwVoOES5YYj2"
@@ -43,6 +44,7 @@ var (
 	clusterName       = "clusterName-random"
 	serviceUID        = "UID-1234567890-0987654321-1234556"
 	certID            = "1745547945134207_157f665c830"
+	nodeName 	  = "iZuf694l8lw6xvdx6gh7tkZ"
 )
 
 func TestCloudConfigInit(t *testing.T) {
@@ -70,7 +72,7 @@ func TestEnsureLoadBalancer(t *testing.T) {
 	}
 
 	service := &v1.Service{
-		ObjectMeta: v1.ObjectMeta{
+		ObjectMeta: metav1.ObjectMeta{
 			Name: "my-service",
 			UID:  types.UID(serviceUID),
 		},
@@ -83,7 +85,7 @@ func TestEnsureLoadBalancer(t *testing.T) {
 		},
 	}
 	nodes := []*v1.Node{
-		{ObjectMeta: v1.ObjectMeta{Name: node1}},
+		{ObjectMeta: metav1.ObjectMeta{Name: node1}},
 	}
 
 	_, e := c.EnsureLoadBalancer(clusterName, service, nodes)
@@ -99,7 +101,7 @@ func TestEnsureLoadBalancerHTTPS(t *testing.T) {
 	}
 
 	service := &v1.Service{
-		ObjectMeta: v1.ObjectMeta{
+		ObjectMeta: metav1.ObjectMeta{
 			Name: "my-service",
 			UID:  types.UID(serviceUID),
 			Annotations: map[string]string{
@@ -116,7 +118,7 @@ func TestEnsureLoadBalancerHTTPS(t *testing.T) {
 		},
 	}
 	nodes := []*v1.Node{
-		{ObjectMeta: v1.ObjectMeta{Name: node1}},
+		{ObjectMeta: metav1.ObjectMeta{Name: node1}},
 	}
 
 	_, e := c.EnsureLoadBalancer(clusterName, service, nodes)
@@ -132,7 +134,7 @@ func TestEnsureLoadBalancerHTTPSHealthCheck(t *testing.T) {
 	}
 
 	service := &v1.Service{
-		ObjectMeta: v1.ObjectMeta{
+		ObjectMeta: metav1.ObjectMeta{
 			Name: "my-service",
 			UID:  types.UID(serviceUID),
 			Annotations: map[string]string{
@@ -152,7 +154,7 @@ func TestEnsureLoadBalancerHTTPSHealthCheck(t *testing.T) {
 		},
 	}
 	nodes := []*v1.Node{
-		{ObjectMeta: v1.ObjectMeta{Name: node1}},
+		{ObjectMeta: metav1.ObjectMeta{Name: node1}},
 	}
 
 	_, e := c.EnsureLoadBalancer(clusterName, service, nodes)
@@ -168,7 +170,7 @@ func TestEnsureLoadBalancerHTTP(t *testing.T) {
 	}
 
 	service := &v1.Service{
-		ObjectMeta: v1.ObjectMeta{
+		ObjectMeta: metav1.ObjectMeta{
 			Name: "my-service",
 			UID:  types.UID(serviceUID),
 			Annotations: map[string]string{
@@ -185,7 +187,7 @@ func TestEnsureLoadBalancerHTTP(t *testing.T) {
 		},
 	}
 	nodes := []*v1.Node{
-		{ObjectMeta: v1.ObjectMeta{Name: node1, GenerateName: node1},
+		{ObjectMeta: metav1.ObjectMeta{Name: node1, GenerateName: node1},
 			Spec: v1.NodeSpec{ExternalID: node1}},
 	}
 
@@ -202,7 +204,7 @@ func TestEnsureLoadBalancerWithListenPortChange(t *testing.T) {
 	}
 
 	service := &v1.Service{
-		ObjectMeta: v1.ObjectMeta{
+		ObjectMeta: metav1.ObjectMeta{
 			Name: "my-service",
 			UID:  types.UID(serviceUID),
 		},
@@ -215,7 +217,7 @@ func TestEnsureLoadBalancerWithListenPortChange(t *testing.T) {
 		},
 	}
 	nodes := []*v1.Node{
-		{ObjectMeta: v1.ObjectMeta{Name: node1}},
+		{ObjectMeta: metav1.ObjectMeta{Name: node1}},
 	}
 
 	_, e := c.EnsureLoadBalancer(clusterName, service, nodes)
@@ -231,7 +233,7 @@ func TestEnsureLoadBalancerWithTargetPortChange(t *testing.T) {
 	}
 
 	service := &v1.Service{
-		ObjectMeta: v1.ObjectMeta{
+		ObjectMeta: metav1.ObjectMeta{
 			Name: "my-service",
 			UID:  types.UID(serviceUID),
 		},
@@ -244,7 +246,7 @@ func TestEnsureLoadBalancerWithTargetPortChange(t *testing.T) {
 		},
 	}
 	nodes := []*v1.Node{
-		{ObjectMeta: v1.ObjectMeta{Name: node1}},
+		{ObjectMeta: metav1.ObjectMeta{Name: node1}},
 	}
 
 	_, e := c.EnsureLoadBalancer(clusterName, service, nodes)
@@ -260,7 +262,7 @@ func TestEnsureLoadBalancerWithProtocolChange(t *testing.T) {
 	}
 
 	service := &v1.Service{
-		ObjectMeta: v1.ObjectMeta{
+		ObjectMeta: metav1.ObjectMeta{
 			Name: "my-service",
 			UID:  types.UID(serviceUID),
 		},
@@ -273,7 +275,7 @@ func TestEnsureLoadBalancerWithProtocolChange(t *testing.T) {
 		},
 	}
 	nodes := []*v1.Node{
-		{ObjectMeta: v1.ObjectMeta{Name: node1}},
+		{ObjectMeta: metav1.ObjectMeta{Name: node1}},
 	}
 
 	_, e := c.EnsureLoadBalancer(clusterName, service, nodes)
@@ -289,7 +291,7 @@ func TestUpdateLoadbalancer(t *testing.T) {
 	}
 
 	service := &v1.Service{
-		ObjectMeta: v1.ObjectMeta{
+		ObjectMeta: metav1.ObjectMeta{
 			Name: "my-service",
 			UID:  types.UID(serviceUID),
 		},
@@ -302,7 +304,7 @@ func TestUpdateLoadbalancer(t *testing.T) {
 		},
 	}
 	nodes := []*v1.Node{
-		{ObjectMeta: v1.ObjectMeta{Name: node1}},
+		{ObjectMeta: metav1.ObjectMeta{Name: node1}},
 	}
 
 	e := c.UpdateLoadBalancer(clusterName, service, nodes)
@@ -318,7 +320,7 @@ func TestEnsureLoadbalancerDeleted(t *testing.T) {
 	}
 
 	service := &v1.Service{
-		ObjectMeta: v1.ObjectMeta{
+		ObjectMeta: metav1.ObjectMeta{
 			Name: "my-service",
 			UID:  types.UID(serviceUID),
 		},
@@ -350,6 +352,18 @@ func TestNodeAddress(t *testing.T) {
 	fmt.Printf("NodeAddress: %+v", n)
 }
 
+func TestFindInstance(t *testing.T) {
+	c, err := newCloud()
+	if err != nil {
+		t.Errorf("TestEnsureLoadbalancerDeleted error newCloud: %s\n", err.Error())
+	}
+	nodeName := types.NodeName("izuf694l8lw6xvdx6gh7tkz")
+	id,err := c.ExternalID(nodeName)
+	if err != nil {
+		t.Fatal("Instance Error: %s\n",err.Error())
+	}
+	fmt.Printf("%+v\n",id)
+}
 func newCloud() (*Cloud, error) {
 	cfg := &CloudConfig{
 		Global: struct {
@@ -361,7 +375,7 @@ func newCloud() (*Cloud, error) {
 		}{
 			AccessKeyID:     keyid,
 			AccessKeySecret: keysecret,
-			Region:          "cn-hangzhou",
+			Region:          "cn-shanghai",
 		},
 	}
 	return newAliCloud(cfg)

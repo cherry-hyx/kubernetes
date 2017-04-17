@@ -1,0 +1,63 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  labels:
+    app: cloud-controller-manager
+    tier: control-plane
+  name: cloud-controller-manager
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: cloud-controller-manager
+      tier: control-plane
+  template:
+    metadata:
+      labels:
+        app: cloud-controller-manager
+        tier: control-plane
+    spec:
+      containers:
+      - command:
+        -  /cloud-controller-manager
+        - --kubeconfig=/etc/kubernetes/controller-manager.conf
+        - --service-account-private-key-file=/etc/kubernetes/pki/sa.key
+        - --address=127.0.0.1
+        - --leader-elect=true
+        - --cloud-provider=alicloud
+        - --cloud-config=/etc/kubernetes/cloud-config
+        - --allocate-node-cidrs=true
+        - --cluster-cidr=172.16.0.0/16
+        image: registry.cn-hangzhou.aliyuncs.com/google-containers/cloud-controller-manager-amd64:1.6.1-8651505.1
+        livenessProbe:
+          failureThreshold: 8
+          httpGet:
+            host: 127.0.0.1
+            path: /healthz
+            port: 10252
+            scheme: HTTP
+          initialDelaySeconds: 15
+          timeoutSeconds: 15
+        name: kube-controller-manager
+        resources:
+          requests:
+            cpu: 200m
+        volumeMounts:
+        - mountPath: /etc/kubernetes/
+          name: k8s
+          readOnly: true
+        - mountPath: /etc/ssl/certs
+          name: certs
+        - mountPath: /etc/pki
+          name: pki
+      hostNetwork: true
+      volumes:
+      - hostPath:
+          path: /etc/kubernetes
+        name: k8s
+      - hostPath:
+          path: /etc/ssl/certs
+        name: certs
+      - hostPath:
+          path: /etc/pki
+        name: pki

@@ -98,6 +98,7 @@ const syncedPollPeriod = 100 * time.Millisecond
 // WaitForCacheSync waits for caches to populate.  It returns true if it was successful, false
 // if the contoller should shutdown
 func WaitForCacheSync(stopCh <-chan struct{}, cacheSyncs ...InformerSynced) bool {
+	glog.V(4).Infof("Begain wait cach.!!!!!!!!!!!!!")
 	err := wait.PollUntil(syncedPollPeriod,
 		func() (bool, error) {
 			for _, syncFunc := range cacheSyncs {
@@ -184,7 +185,7 @@ type deleteNotification struct {
 
 func (s *sharedIndexInformer) Run(stopCh <-chan struct{}) {
 	defer utilruntime.HandleCrash()
-
+	glog.Infof("sharedIndexInformer RUn")
 	fifo := NewDeltaFIFO(MetaNamespaceKeyFunc, nil, s.indexer)
 
 	cfg := &Config{
@@ -220,12 +221,15 @@ func (s *sharedIndexInformer) isStarted() bool {
 }
 
 func (s *sharedIndexInformer) HasSynced() bool {
+	glog.Infof("Enter HasSynced ")
 	s.startedLock.Lock()
 	defer s.startedLock.Unlock()
-
+	glog.Infof("GetLock HasSynced")
 	if s.controller == nil {
+		glog.Infof("GetLock HasSynced controller nil")
 		return false
 	}
+	glog.Infof("GetLock HasSynced not nil")
 	return s.controller.HasSynced()
 }
 

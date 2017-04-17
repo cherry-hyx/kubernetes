@@ -173,13 +173,14 @@ func (s *ServiceController) Run(stopCh <-chan struct{}, workers int) {
 	defer runtime.HandleCrash()
 	defer s.workingQueue.ShutDown()
 
-	glog.Info("Starting service controller")
+	glog.Info("Starting service controller,111")
 
 	if !cache.WaitForCacheSync(stopCh, s.serviceListerSynced, s.nodeListerSynced) {
 		runtime.HandleError(fmt.Errorf("timed out waiting for caches to sync"))
 	}
-
+	glog.Infof("ServiceController waitForCacheSync")
 	for i := 0; i < workers; i++ {
+		glog.Infof("WWWWWW:workes,wait,%v",workers)
 		go wait.Until(s.worker, time.Second, stopCh)
 	}
 

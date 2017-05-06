@@ -357,8 +357,8 @@ func TestFindInstance(t *testing.T) {
 	if err != nil {
 		t.Errorf("TestEnsureLoadbalancerDeleted error newCloud: %s\n", err.Error())
 	}
-	nodeName := types.NodeName("izuf694l8lw6xvdx6gh7tkz")
-	id,err := c.ExternalID(nodeName)
+	nodeName := types.NodeName("c8330c59708d84f819a1ca0cd4c9bfd2b-node1")
+	id,err := c.InstanceID(nodeName)
 	if err != nil {
 		t.Fatal("Instance Error: %s\n",err.Error())
 	}
@@ -373,9 +373,9 @@ func newCloud() (*Cloud, error) {
 			AccessKeySecret string `json:"accessKeySecret"`
 			Region          string `json:"region"`
 		}{
-			AccessKeyID:     keyid,
-			AccessKeySecret: keysecret,
-			Region:          "cn-shanghai",
+			AccessKeyID:     "",
+			AccessKeySecret: "",
+			Region:          "cn-zhangjiakou",
 		},
 	}
 	return newAliCloud(cfg)

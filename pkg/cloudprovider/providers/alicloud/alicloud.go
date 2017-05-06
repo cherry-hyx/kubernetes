@@ -212,8 +212,8 @@ func (c *Cloud) NodeAddresses(name types.NodeName) ([]v1.NodeAddress, error) {
 func (c *Cloud) ExternalID(nodeName types.NodeName) (string, error) {
 	glog.V(2).Infof("Alicloud.ExternalID(\"%s\")", string(nodeName))
 	instance, err := c.ins.findInstanceByNodeName(nodeName)
-	if err != nil && err == cloudprovider.InstanceNotFound {
-		return "", cloudprovider.InstanceNotFound
+	if err != nil {
+		return "", err
 	}
 	return instance.InstanceId, nil
 }

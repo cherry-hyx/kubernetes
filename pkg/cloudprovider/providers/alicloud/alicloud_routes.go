@@ -21,6 +21,8 @@ import (
 	"github.com/golang/glog"
 	"k8s.io/apimachinery/pkg/types"
 	"strings"
+	"errors"
+	"fmt"
 )
 
 type SDKClientRoutes struct {
@@ -41,18 +43,23 @@ func (r *SDKClientRoutes) getRouteTableByInstance(i *ecs.InstanceAttributesType)
 		RegionId: i.RegionId,
 		VpcId:    i.VpcAttributes.VpcId,
 	})
-	if err != nil || len(vpc) <= 0 {
+	if err != nil {
 		glog.V(2).Infof("Alicloud: Error ecs.DescribeVpcs(%s,%s), %s . \n",i.RegionId,i.VpcAttributes.VpcId, r.getErrorString(err))
 		return "","", err
 	}
-
+	if len(vpc) <= 0{
+		return "","", errors.New(fmt.Sprintf("Can not find vpc Meta by instance[ins=%s][region=%s][vpcid=%s], error: len = 0",i.InstanceId,i.RegionId,i.VpcAttributes.VpcId))
+	}
 	vroute, _, err := r.client.DescribeVRouters(&ecs.DescribeVRoutersArgs{
 		VRouterId: vpc[0].VRouterId,
 		RegionId:  i.RegionId,
 	})
-	if err != nil || len(vroute) <= 0 {
+	if err != nil {
 		glog.V(2).Infof("Alicloud: Error ecs.DescribeVRouters(%s,%s), %s .\n",vpc[0].VRouterId,i.RegionId, r.getErrorString(err))
 		return "", "",err
+	}
+	if len(vroute) <= 0{
+		return "","", errors.New(fmt.Sprintf("Can not find VRouter Meta by instance[ins=%s][region=%s][vpcid=%s], error: len = 0",i.InstanceId,i.RegionId,i.VpcAttributes.VpcId))
 	}
 
 	return vroute[0].VRouterId, vroute[0].RouteTableIds.RouteTableId[0],nil
@@ -65,11 +72,17 @@ func (r *SDKClientRoutes) ListRoutes(ins *ecs.InstanceAttributesType) ([]*cloudp
 		VRouterId:    vRouteID,
 		RouteTableId: rTableID,
 	})
-	if err != nil || len(rtables) <= 0 {
-		glog.V(2).Infof("Alicloud: Error ecs.DescribeRouteTables() %s.\n", err.Error())
+	if err != nil {
+		glog.V(2).Infof("Alicloud: Error ecs.DescribeRouteTables() %s.\n", r.getErrorString(err))
 		return nil, err
 	}
+
 	tabs := []*cloudprovider.Route{}
+	if len(rtables) <= 0 {
+		glog.V(2).Infof("Alicloud WARINING: SDKClientRoutes.SDKClientRoutes(%s),vRouteID=%s,rTableID=%s\n",
+		ins.InstanceId,vRouteID,rTableID)
+		return tabs,nil
+	}
 	for _, e := range rtables[0].RouteEntrys.RouteEntry{
 		//skip none custom route
 		if e.Type != ecs.RouteTableCustom {
@@ -106,11 +119,15 @@ func (r *SDKClientRoutes) CreateRoute( route *cloudprovider.Route,ins *ecs.Insta
 		VRouterId:    vRouteID,
 		RouteTableId: rTableID,
 	})
-	if err != nil || len(rtables) <= 0 {
+	if err != nil {
 		glog.V(2).Infof("Alicloud: Error ecs.DescribeRouteTables() %s.\n", err.Error())
 		return err
 	}
-
+	if len(rtables) <= 0 {
+		glog.V(2).Infof("Alicloud WARINING: SDKClientRoutes.SDKClientRoutes(%s),vRouteID=%s,rTableID=%s\n",
+			ins.InstanceId,vRouteID,rTableID)
+		return errors.New(fmt.Sprintf("SDKClientRoutes.CreateRoute(%s,%s),Error: cant find route table [vRouteID=%s,rTableID=%s]",ins.InstanceId,route.DestinationCIDR,vRouteID,rTableID))
+	}
 	if err := r.reCreateRoute(rtables[0], &ecs.CreateRouteEntryArgs{
 		DestinationCidrBlock: route.DestinationCIDR,
 		NextHopType:          ecs.NextHopIntance,

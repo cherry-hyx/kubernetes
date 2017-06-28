@@ -86,9 +86,9 @@ type SDKClientSLB struct {
 }
 
 func NewSDKClientSLB( key string, secret string) *SDKClientSLB {
-	return &SDKClientSLB{
-		c:        slb.NewClient(key, secret),
-	}
+	client := slb.NewClient(key, secret)
+	client.SetBusinessInfo(KUBERNETES_ALICLOUD_IDENTITY)
+	return &SDKClientSLB{ c:  client }
 }
 func (s *SDKClientSLB) GetLoadBalancerByName(lbn string,service *v1.Service) (*slb.LoadBalancerType, bool, error) {
 	ar := ExtractAnnotationRequest(service)

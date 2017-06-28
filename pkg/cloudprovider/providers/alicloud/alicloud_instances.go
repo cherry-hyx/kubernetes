@@ -41,6 +41,7 @@ func NewSDKClientINS(access_key_id string, access_key_secret string) *SDKClientI
 		Instance: make(map[string]*ecs.InstanceAttributesType),
 		lock:     new(sync.RWMutex),
 	}
+	ins.c.SetBusinessInfo(KUBERNETES_ALICLOUD_IDENTITY)
 	regions,err := ins.c.DescribeRegions()
 	if err == nil {
 		ins.regions = regions

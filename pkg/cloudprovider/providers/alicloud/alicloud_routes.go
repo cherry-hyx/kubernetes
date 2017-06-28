@@ -31,10 +31,12 @@ type SDKClientRoutes struct {
 }
 
 func NewSDKClientRoutes(access_key_id string, access_key_secret string) (*SDKClientRoutes,error) {
-	sdk := &SDKClientRoutes{
-		client:        ecs.NewClient(access_key_id, access_key_secret),
-	}
-	return sdk,nil
+	c := ecs.NewClient(access_key_id, access_key_secret)
+	c.SetBusinessInfo(KUBERNETES_ALICLOUD_IDENTITY)
+
+	return &SDKClientRoutes{
+		client: c ,
+	} , nil
 }
 
 func (r *SDKClientRoutes) getRouteTableByInstance(i *ecs.InstanceAttributesType) (string,string,error){

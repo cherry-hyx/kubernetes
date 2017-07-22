@@ -32,6 +32,7 @@ import (
 	"strconv"
 	"strings"
 	"k8s.io/kubernetes/pkg/version"
+	"k8s.io/kubernetes/pkg/controller"
 )
 
 // ProviderName is the name of this cloud provider.
@@ -129,6 +130,9 @@ func newAliCloud(config *CloudConfig) (*Cloud, error) {
 	return c, nil
 }
 
+// Initialize passes a Kubernetes clientBuilder interface to the cloud provider
+func (c *Cloud) Initialize(clientBuilder controller.ControllerClientBuilder) {}
+
 // TODO: Break this up into different interfaces (LB, etc) when we have more than one type of service
 // GetLoadBalancer returns whether the specified load balancer exists, and
 // if so, what its status is.
@@ -211,6 +215,23 @@ func (c *Cloud) NodeAddresses(name types.NodeName) ([]v1.NodeAddress, error) {
 	return c.ins.findAddress(name)
 }
 
+// InstanceTypeByProviderID returns the cloudprovider instance type of the node with the specified unique providerID
+// This method will not be called from the node that is requesting this ID. i.e. metadata service
+// and other local methods cannot be used here
+func (c *Cloud) InstanceTypeByProviderID(providerID string) (string, error) {
+
+	return "",nil
+}
+
+
+// NodeAddressesByProviderID returns the node addresses of an instances with the specified unique providerID
+// This method will not be called from the node that is requesting this ID. i.e. metadata service
+// and other local methods cannot be used here
+func (c *Cloud) NodeAddressesByProviderID(providerID string) ([]v1.NodeAddress, error) {
+
+	return nil, nil
+}
+
 // ExternalID returns the cloud provider ID of the node with the specified NodeName.
 // Note that if the instance does not exist or is no longer running, we must return ("", cloudprovider.InstanceNotFound)
 func (c *Cloud) ExternalID(nodeName types.NodeName) (string, error) {
@@ -251,7 +272,11 @@ func (c *Cloud) AddSSHKeyToAllInstances(user string, keyData []byte) error {
 // On most clouds (e.g. GCE) this is the hostname, so we provide the hostname
 func (c *Cloud) CurrentNodeName(hostname string) (types.NodeName, error) {
 	glog.V(2).Infof("Alicloud.CurrentNodeName(\"%s\")", hostname)
-	return types.NodeName(hostname), nil
+
+	nodeName,err := c.meta.InstanceID()
+
+	glog.V(2).Infof("Alicloud.CurrentNodeName-I(\"%s\")", types.NodeName(nodeName))
+	return types.NodeName(nodeName), err
 }
 
 // ListRoutes lists all managed routes that belong to the specified clusterName

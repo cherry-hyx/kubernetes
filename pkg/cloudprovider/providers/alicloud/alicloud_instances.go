@@ -28,18 +28,18 @@ import (
 )
 
 type SDKClientINS struct {
-	regions  []ecs.RegionType
-	c        *ecs.Client
-	Instance map[string]*ecs.InstanceAttributesType
-	NodeName types.NodeName
-	lock     *sync.RWMutex
+	regions         []ecs.RegionType
+	c               *ecs.Client
+	Instance        map[string]*ecs.InstanceAttributesType
+	CurrentNodeName types.NodeName
+	lock            *sync.RWMutex
 }
 
 func NewSDKClientINS(access_key_id string, access_key_secret string) *SDKClientINS {
 	ins := &SDKClientINS{
 		c:        ecs.NewClient(access_key_id, access_key_secret),
-		Instance: make(map[string]*ecs.InstanceAttributesType),
 		lock:     new(sync.RWMutex),
+		Instance: make(map[string]*ecs.InstanceAttributesType),
 	}
 	ins.c.SetBusinessInfo(KUBERNETES_ALICLOUD_IDENTITY)
 	regions,err := ins.c.DescribeRegions()
@@ -66,6 +66,7 @@ func Forever(ins *SDKClientINS, period time.Duration) {
 			}(ins)
 
 			for k,v := range ins.Instance{
+				time.Sleep(time.Duration((1*time.Second)))
 				if v == nil {
 					continue
 				}
@@ -79,7 +80,6 @@ func Forever(ins *SDKClientINS, period time.Duration) {
 					glog.Errorf("Alicloud Provider: Warning, refresh Instance info Error,error=%s, Key=%s, Skip!\n",err.Error(),k)
 					continue
 				}
-				time.Sleep(time.Duration((1*time.Second)))
 			}
 		}()
 		select {
@@ -90,7 +90,7 @@ func Forever(ins *SDKClientINS, period time.Duration) {
 // getAddressesByName return an instance address slice by it's name.
 func (s *SDKClientINS) findAddress(nodeName types.NodeName) ([]v1.NodeAddress, error) {
 
-	instance, err := s.findInstanceByNodeName(nodeName)
+	instance, err := s.findInstanceByNodeID(nodeName)
 	if err != nil {
 		glog.Errorf("Error getting instance by InstanceId '%s': %v", nodeName, err)
 		return nil, err
@@ -129,7 +129,7 @@ func (s *SDKClientINS) findAddress(nodeName types.NodeName) ([]v1.NodeAddress, e
 
 // Returns the instance with the specified node name
 // Returns nil if it does not exist
-func (s *SDKClientINS) findInstanceByNodeName(nodeName types.NodeName) (*ecs.InstanceAttributesType, error) {
+func (s *SDKClientINS) findInstanceByNodeID(nodeName types.NodeName) (*ecs.InstanceAttributesType, error) {
 	glog.V(2).Infof("Alicloud.findInstanceByNodeName(\"%s\")", nodeName)
 	for _,region := range s.regions {
 		v,_ := s.doFindInstance(nodeName,region.RegionId)
@@ -140,32 +140,6 @@ func (s *SDKClientINS) findInstanceByNodeName(nodeName types.NodeName) (*ecs.Ins
 	return nil, cloudprovider.InstanceNotFound
 }
 
-// Returns the instance with the specified node name
-// Returns nil if it does not exist
-func (s *SDKClientINS) findInstanceByInstanceID(insID string) (*ecs.InstanceAttributesType, error) {
-	glog.V(2).Infof("Alicloud.findInstanceByInstanceID(\"%s\")", insID)
-	for _,v := range s.Instance{
-		if v == nil {
-			continue
-		}
-		//glog.Infof("Range s.Instance: %s, %s\n",v.InstanceId,insID)
-		if v.InstanceId == insID{
-			return v, nil
-		}
-	}
-
-	for _,region := range s.regions {
-		v,err := s.refreshInstanceByID(insID,region.RegionId)
-		if err != nil {
-			glog.Warningf("findInstanceByInstanceID: cache search failed, fallback to findInstanceByInstanceID," +
-				" [%s],[%s]\n",insID,region.RegionId,err.Error())
-			continue
-		}
-		return v,nil
-	}
-
-	return nil, cloudprovider.InstanceNotFound
-}
 
 func (s *SDKClientINS) listRegions() map[string] *ecs.InstanceAttributesType{
 	regs := make(map[string]*ecs.InstanceAttributesType)
@@ -202,9 +176,9 @@ func (s *SDKClientINS) doFindInstance(nodeName types.NodeName, region common.Reg
 func (s *SDKClientINS) refreshInstance(nodeName types.NodeName, region common.Region) (*ecs.InstanceAttributesType, error) {
 	args := ecs.DescribeInstancesArgs{
 		RegionId:     region,
-		InstanceName: string(nodeName),
+		InstanceIds:  fmt.Sprintf("[\"%s\"]",string(nodeName)),
 	}
-	s.NodeName = nodeName
+
 	instances, _, err := s.c.DescribeInstances(&args)
 	if err != nil {
 		glog.Errorf("refreshInstance: DescribeInstances error=%s, region=%s, instanceName=%s", err.Error(),args.RegionId,args.InstanceName)
@@ -214,41 +188,21 @@ func (s *SDKClientINS) refreshInstance(nodeName types.NodeName, region common.Re
 
 	if len(instances) == 0 {
 		glog.Infof("refreshInstance: InstanceNotFound, [%s/%s]",nodeName,region)
-		s.Set(fmt.Sprintf("%s/%s",nodeName,region),nil)
+		s.Set(s.KeyName(nodeName,region),nil)
 		return nil, cloudprovider.InstanceNotFound
 	}
 	if len(instances) > 1 {
 		glog.Errorf("Warning: Multipul instance found by nodename [%s], the first one will be used. Instance: [%+v]", string(nodeName), instances)
 	}
 	glog.V(2).Infof("Alicloud.refreshInstance(\"%s\") finished. [ %+v ]\n", string(nodeName), instances[0])
-	s.Set(fmt.Sprintf("%s/%s",nodeName,region),&instances[0])
+	s.Set(s.KeyName(nodeName,region),&instances[0])
 	return &instances[0], nil
 }
 
-func (s *SDKClientINS) refreshInstanceByID(insid string, region common.Region) (*ecs.InstanceAttributesType, error) {
-	args := ecs.DescribeInstancesArgs{
-		RegionId:     region,
-		InstanceIds:  fmt.Sprintf("[\"%s\"]",string(insid)),
-	}
-	instances, _, err := s.c.DescribeInstances(&args)
-	if err != nil {
-		glog.Errorf("refreshInstanceByID: DescribeInstances error=%s, region=%s, instanceName=%s", err.Error(),args.RegionId,args.InstanceName)
-		//s.Set(fmt.Sprintf("%s/%s",nodeName,region),nil)
-		return nil, err
-	}
+func (s *SDKClientINS) KeyName(nodeName types.NodeName, region common.Region) string {
 
-	if len(instances) == 0 {
-		glog.Infof("refreshInstanceByID: InstanceNotFound, [%s/%s]", insid,region)
-		s.Set(fmt.Sprintf("%s/%s", insid,region),nil)
-		return nil, cloudprovider.InstanceNotFound
-	}
-	if len(instances) > 1 {
-		glog.Errorf("Warning: Multipul instance found by nodename [%s], the first one will be used. Instance: [%+v]", string(insid), instances)
-	}
-	glog.V(2).Infof("Alicloud.refreshInstanceByID(\"%s\") finished. [ %+v ]\n", string(insid), instances[0])
-	return &instances[0], nil
+	return fmt.Sprintf("%s/%s",nodeName,region)
 }
-
 
 
 func (s *SDKClientINS) Set(k string, v *ecs.InstanceAttributesType) {

@@ -134,16 +134,15 @@ func (s *SDKClientSLB) EnsureLoadBalancer(service *v1.Service, nodes []*v1.Node)
 			return nil, err
 		}
 	} else {
-
+		glog.V(2).Infof("Alicloud.EnsureLoadBalancer() compare: %+v, %+v",opts,lb)
 		// Todo: here we need to compare loadbalance
-		if opts.InternetChargeType != lb.InternetChargeType ||
-			opts.Bandwidth != lb.Bandwidth {
+		if opts.InternetChargeType != lb.InternetChargeType {
 			glog.Infof("Alicloud.EnsureLoadBalancer() InternetChargeType or Bandwidth Changed, update LoadBalancer:[%+v]\n", opts)
 			if err := s.c.ModifyLoadBalancerInternetSpec(
 				&slb.ModifyLoadBalancerInternetSpecArgs{
 					LoadBalancerId:     lb.LoadBalancerId,
 					InternetChargeType: opts.InternetChargeType,
-					Bandwidth:          opts.Bandwidth,
+					//Bandwidth:          opts.Bandwidth,
 				}); err != nil {
 				return nil, err
 			}

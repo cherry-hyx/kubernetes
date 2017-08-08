@@ -19,12 +19,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/denverdino/aliyungo/slb"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/kubernetes/pkg/api/v1"
 	"strings"
 	"testing"
-	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/kubernetes/pkg/api/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var keyid string = "LTAIdwVoOES5YYj2"
@@ -44,7 +44,7 @@ var (
 	clusterName       = "clusterName-random"
 	serviceUID        = "UID-1234567890-0987654321-1234556"
 	certID            = "1745547945134207_157f665c830"
-	nodeName 	  = "iZuf694l8lw6xvdx6gh7tkZ"
+	nodeName          = "iZuf694l8lw6xvdx6gh7tkZ"
 )
 
 func TestCloudConfigInit(t *testing.T) {
@@ -358,11 +358,11 @@ func TestFindInstance(t *testing.T) {
 		t.Errorf("TestEnsureLoadbalancerDeleted error newCloud: %s\n", err.Error())
 	}
 	nodeName := types.NodeName("c8330c59708d84f819a1ca0cd4c9bfd2b-node1")
-	id,err := c.InstanceID(nodeName)
+	id, err := c.InstanceID(nodeName)
 	if err != nil {
-		t.Fatal("Instance Error: %s\n",err.Error())
+		t.Fatal("Instance Error: %s\n", err.Error())
 	}
-	fmt.Printf("%+v\n",id)
+	fmt.Printf("%+v\n", id)
 }
 func newCloud() (*Cloud, error) {
 	cfg := &CloudConfig{

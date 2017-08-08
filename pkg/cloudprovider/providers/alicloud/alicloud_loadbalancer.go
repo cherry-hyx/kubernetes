@@ -82,15 +82,15 @@ type AnnotationRequest struct {
 }
 
 type SDKClientSLB struct {
-	c        *slb.Client
+	c *slb.Client
 }
 
-func NewSDKClientSLB( key string, secret string) *SDKClientSLB {
+func NewSDKClientSLB(key string, secret string) *SDKClientSLB {
 	client := slb.NewClient(key, secret)
 	client.SetBusinessInfo(KUBERNETES_ALICLOUD_IDENTITY)
-	return &SDKClientSLB{ c:  client }
+	return &SDKClientSLB{c: client}
 }
-func (s *SDKClientSLB) GetLoadBalancerByName(lbn string,service *v1.Service) (*slb.LoadBalancerType, bool, error) {
+func (s *SDKClientSLB) GetLoadBalancerByName(lbn string, service *v1.Service) (*slb.LoadBalancerType, bool, error) {
 	ar := ExtractAnnotationRequest(service)
 	lbs, err := s.c.DescribeLoadBalancers(
 		&slb.DescribeLoadBalancersArgs{
@@ -116,7 +116,7 @@ func (s *SDKClientSLB) GetLoadBalancerByName(lbn string,service *v1.Service) (*s
 	return lb, true, nil
 }
 
-func (s *SDKClientSLB) EnsureLoadBalancer(service *v1.Service, nodes []*v1.Node) (*slb.LoadBalancerType, error) {
+func (s *SDKClientSLB) EnsureLoadBalancer(service *v1.Service, nodes []*v1.Node, vswitchid string) (*slb.LoadBalancerType, error) {
 	lbn := cloudprovider.GetLoadBalancerName(service)
 	lb, exists, err := s.GetLoadBalancerByName(lbn, service)
 	if err != nil {
@@ -124,6 +124,7 @@ func (s *SDKClientSLB) EnsureLoadBalancer(service *v1.Service, nodes []*v1.Node)
 	}
 	opts := s.getLoadBalancerOpts(service)
 	opts.LoadBalancerName = lbn
+	opts.VSwitchId = vswitchid
 	if !exists {
 		lbr, err := s.c.CreateLoadBalancer(opts)
 		if err != nil {
@@ -134,7 +135,7 @@ func (s *SDKClientSLB) EnsureLoadBalancer(service *v1.Service, nodes []*v1.Node)
 			return nil, err
 		}
 	} else {
-		glog.V(2).Infof("Alicloud.EnsureLoadBalancer() compare: %+v, %+v",opts,lb)
+		glog.V(2).Infof("Alicloud.EnsureLoadBalancer() compare: %+v, %+v", opts, lb)
 		// Todo: here we need to compare loadbalance
 		if opts.InternetChargeType != lb.InternetChargeType {
 			glog.Infof("Alicloud.EnsureLoadBalancer() InternetChargeType or Bandwidth Changed, update LoadBalancer:[%+v]\n", opts)
@@ -178,7 +179,7 @@ func (s *SDKClientSLB) EnsureLoadBalancer(service *v1.Service, nodes []*v1.Node)
 
 func (s *SDKClientSLB) UpdateLoadBalancer(service *v1.Service, nodes []*v1.Node) error {
 	lbn := cloudprovider.GetLoadBalancerName(service)
-	lb, exists, err := s.GetLoadBalancerByName(lbn,service)
+	lb, exists, err := s.GetLoadBalancerByName(lbn, service)
 	if err != nil {
 		return err
 	}
@@ -538,13 +539,13 @@ func (s *SDKClientSLB) createListener(lb *slb.LoadBalancerType, pp PortListener)
 				//Health Check
 				Bandwidth: pp.Bandwidth,
 
-				HealthCheckType:        pp.HealthCheckType,
-				HealthCheckURI:         pp.HealthCheckURI,
-				HealthCheckConnectPort: pp.HealthCheckConnectPort,
-				HealthyThreshold:       pp.HealthyThreshold,
-				UnhealthyThreshold:     pp.UnhealthyThreshold,
-				HealthCheckConnectTimeout:     pp.HealthCheckConnectTimeout,
-				HealthCheckInterval:    pp.HealthCheckInterval,
+				HealthCheckType:           pp.HealthCheckType,
+				HealthCheckURI:            pp.HealthCheckURI,
+				HealthCheckConnectPort:    pp.HealthCheckConnectPort,
+				HealthyThreshold:          pp.HealthyThreshold,
+				UnhealthyThreshold:        pp.UnhealthyThreshold,
+				HealthCheckConnectTimeout: pp.HealthCheckConnectTimeout,
+				HealthCheckInterval:       pp.HealthCheckInterval,
 			}); err != nil {
 			return err
 		}
@@ -558,11 +559,11 @@ func (s *SDKClientSLB) createListener(lb *slb.LoadBalancerType, pp PortListener)
 				//Health Check
 				Bandwidth: pp.Bandwidth,
 
-				HealthCheckConnectPort: pp.HealthCheckConnectPort,
-				HealthyThreshold:       pp.HealthyThreshold,
-				UnhealthyThreshold:     pp.UnhealthyThreshold,
-				HealthCheckConnectTimeout:     pp.HealthCheckTimeout,
-				HealthCheckInterval:    pp.HealthCheckInterval,
+				HealthCheckConnectPort:    pp.HealthCheckConnectPort,
+				HealthyThreshold:          pp.HealthyThreshold,
+				UnhealthyThreshold:        pp.UnhealthyThreshold,
+				HealthCheckConnectTimeout: pp.HealthCheckTimeout,
+				HealthCheckInterval:       pp.HealthCheckInterval,
 			}); err != nil {
 			return err
 		}

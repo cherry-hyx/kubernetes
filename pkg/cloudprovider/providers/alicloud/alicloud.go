@@ -25,20 +25,19 @@ import (
 	"github.com/denverdino/aliyungo/slb"
 	"github.com/golang/glog"
 	"io"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/cloudprovider"
-	"k8s.io/apimachinery/pkg/types"
-	"strconv"
-	"strings"
-	"k8s.io/kubernetes/pkg/version"
 	"k8s.io/kubernetes/pkg/controller"
+	"k8s.io/kubernetes/pkg/version"
+	"strconv"
 )
 
 // ProviderName is the name of this cloud provider.
 const ProviderName = "alicloud"
 
 // This is for statistic purpose.
-var KUBERNETES_ALICLOUD_IDENTITY = fmt.Sprintf("Kubernetes.Alicloud/%s",version.Get().String())
+var KUBERNETES_ALICLOUD_IDENTITY = fmt.Sprintf("Kubernetes.Alicloud/%s", version.Get().String())
 
 // Cloud is an implementation of Interface, LoadBalancer and Instances for Alicloud Services.
 type Cloud struct {
@@ -46,7 +45,7 @@ type Cloud struct {
 	slb  *SDKClientSLB
 	ins  *SDKClientINS
 
-	routes * SDKClientRoutes
+	routes *SDKClientRoutes
 
 	cfg    *CloudConfig
 	region common.Region
@@ -59,7 +58,7 @@ var (
 	DEFAULT_ADDRESS_TYPE = slb.InternetAddressType
 
 	// DEFAULT_REGION should be override in cloud initialize.
-	DEFAULT_REGION	     = common.Hangzhou
+	DEFAULT_REGION = common.Hangzhou
 )
 
 // CloudConfig wraps the settings for the AWS cloud provider.
@@ -112,25 +111,25 @@ func newAliCloud(config *CloudConfig) (*Cloud, error) {
 
 		v, err := c.meta.VpcID()
 		if err != nil {
-			return nil, errors.New(fmt.Sprintf("Alicloud: error get vpcid. %s\n",err.Error()))
+			return nil, errors.New(fmt.Sprintf("Alicloud: error get vpcid. %s\n", err.Error()))
 		}
 		c.vpcID = v
 
-		glog.Infof("Using vpc region:[region: %s],[vpcid: %s]", r,c.vpcID)
+		glog.Infof("Using vpc region:[region: %s],[vpcid: %s]", r, c.vpcID)
 
 		curr, err = c.meta.InstanceID()
 		if err != nil {
-			glog.Warningf("Error get instance id, %s", r,c.vpcID)
+			glog.Warningf("Error get instance id, %s", r, c.vpcID)
 		}
 	}
 	DEFAULT_REGION = c.region
 	c.slb = NewSDKClientSLB(config.Global.AccessKeyID, config.Global.AccessKeySecret)
 	c.ins = NewSDKClientINS(config.Global.AccessKeyID, config.Global.AccessKeySecret)
 	c.ins.CurrentNodeName = types.NodeName(curr)
-	r, err := NewSDKClientRoutes(config.Global.AccessKeyID, config.Global.AccessKeySecret);
-	if err != nil{
-		glog.V(2).Infof("Alicloud: error create routesdk, [%s]\n",err.Error())
-		return c,nil
+	r, err := NewSDKClientRoutes(config.Global.AccessKeyID, config.Global.AccessKeySecret)
+	if err != nil {
+		glog.V(2).Infof("Alicloud: error create routesdk, [%s]\n", err.Error())
+		return c, nil
 	}
 	c.routes = r
 	return c, nil
@@ -147,7 +146,7 @@ func (c *Cloud) Initialize(clientBuilder controller.ControllerClientBuilder) {}
 func (c *Cloud) GetLoadBalancer(clusterName string, service *v1.Service) (status *v1.LoadBalancerStatus, exists bool, err error) {
 
 	lb, exists, err := c.slb.GetLoadBalancerByName(
-		cloudprovider.GetLoadBalancerName(service),service)
+		cloudprovider.GetLoadBalancerName(service), service)
 
 	if err != nil || !exists {
 		return nil, exists, err
@@ -166,7 +165,7 @@ func (c *Cloud) EnsureLoadBalancer(clusterName string, service *v1.Service, node
 	ns := c.filterOutByRegion(nodes, ExtractAnnotationRequest(service).Region)
 	annotations := service.Annotations
 	glog.V(2).Infof("alicloud.EnsureLoadBalancer(%v, %v, %v, %v, %v, %v, %v, %v,%v)",
-		clusterName, service.Namespace, service.Name, c.region, service.Spec.LoadBalancerIP, service.Spec.Ports, nodes, annotations,ns)
+		clusterName, service.Namespace, service.Name, c.region, service.Spec.LoadBalancerIP, service.Spec.Ports, nodes, annotations, ns)
 	if service.Spec.SessionAffinity != v1.ServiceAffinityNone {
 		// Does not support SessionAffinity
 		return nil, fmt.Errorf("unsupported load balancer affinity: %v", service.Spec.SessionAffinity)
@@ -177,7 +176,17 @@ func (c *Cloud) EnsureLoadBalancer(clusterName string, service *v1.Service, node
 	if service.Spec.LoadBalancerIP != "" {
 		return nil, fmt.Errorf("LoadBalancerIP cannot be specified for AWS ELB")
 	}
-	lb, err := c.slb.EnsureLoadBalancer(service, ns)
+	vswitchid := ""
+	for _, v := range ns {
+		i, err := c.ins.findInstanceByNode(types.NodeName(v.Name))
+		if err != nil {
+			return nil, err
+		}
+		vswitchid = i.VpcAttributes.VSwitchId
+		break
+	}
+
+	lb, err := c.slb.EnsureLoadBalancer(service, ns, vswitchid)
 	if err != nil {
 		return nil, err
 	}
@@ -226,13 +235,12 @@ func (c *Cloud) NodeAddresses(name types.NodeName) ([]v1.NodeAddress, error) {
 // and other local methods cannot be used here
 func (c *Cloud) InstanceTypeByProviderID(providerID string) (string, error) {
 	glog.V(2).Infof("Alicloud.InstanceTypeByProviderID(\"%s\")", providerID)
-	ins, err := c.ins.findInstanceByNodeID(types.NodeName(providerID))
+	ins, err := c.ins.findInstanceByNode(types.NodeName(providerID))
 	if err == nil {
 		return ins.InstanceType, nil
 	}
-	return "",err
+	return "", err
 }
-
 
 // NodeAddressesByProviderID returns the node addresses of an instances with the specified unique providerID
 // This method will not be called from the node that is requesting this ID. i.e. metadata service
@@ -246,7 +254,7 @@ func (c *Cloud) NodeAddressesByProviderID(providerID string) ([]v1.NodeAddress, 
 // Note that if the instance does not exist or is no longer running, we must return ("", cloudprovider.InstanceNotFound)
 func (c *Cloud) ExternalID(nodeName types.NodeName) (string, error) {
 	glog.V(2).Infof("Alicloud.ExternalID(\"%s\")", string(nodeName))
-	instance, err := c.ins.findInstanceByNodeID(nodeName)
+	instance, err := c.ins.findInstanceByNode(nodeName)
 	if err != nil {
 		return "", err
 	}
@@ -256,7 +264,7 @@ func (c *Cloud) ExternalID(nodeName types.NodeName) (string, error) {
 // InstanceID returns the cloud provider ID of the node with the specified NodeName.
 func (c *Cloud) InstanceID(nodeName types.NodeName) (string, error) {
 	glog.V(2).Infof("Alicloud.InstanceID(\"%s\")", string(nodeName))
-	instance, err := c.ins.findInstanceByNodeID(nodeName)
+	instance, err := c.ins.findInstanceByNode(nodeName)
 	if err != nil {
 		return "", err
 	}
@@ -266,7 +274,7 @@ func (c *Cloud) InstanceID(nodeName types.NodeName) (string, error) {
 // InstanceType returns the type of the specified instance.
 func (c *Cloud) InstanceType(name types.NodeName) (string, error) {
 	glog.V(2).Infof("Alicloud.InstanceType(\"%s\")", string(name))
-	instance, err := c.ins.findInstanceByNodeID(name)
+	instance, err := c.ins.findInstanceByNode(name)
 	if err != nil {
 		return "", err
 	}
@@ -282,66 +290,73 @@ func (c *Cloud) AddSSHKeyToAllInstances(user string, keyData []byte) error {
 // CurrentNodeName returns the name of the node we are currently running on
 // On most clouds (e.g. GCE) this is the hostname, so we provide the hostname
 func (c *Cloud) CurrentNodeName(hostname string) (types.NodeName, error) {
-	nodeName,err := c.meta.InstanceID()
+	nodeName, err := c.meta.InstanceID()
+	if err != nil {
+		return "", err
+	}
+	region, err := c.meta.Region()
+	if err != nil {
+		return "", err
+	}
 	glog.V(2).Infof("Alicloud.CurrentNodeName(\"%s\")", nodeName)
-	return types.NodeName(nodeName), err
+	return types.NodeName(fmt.Sprintf("%s.%s", region, nodeName)), nil
 }
 
 // ListRoutes lists all managed routes that belong to the specified clusterName
 func (c *Cloud) ListRoutes(clusterName string) ([]*cloudprovider.Route, error) {
 	routes := []*cloudprovider.Route{}
-	for _,v := range c.ins.listRegions(){
-		r, err := c.routes.ListRoutes(v)
+	for k, v := range c.ins.Regions() {
+		r, err := c.routes.ListRoutes(common.Region(k), v)
 		if err != nil {
-			fmt.Errorf("Alicloud.ListRoutes : ERROR , %s\n",err.Error())
+			fmt.Errorf("Alicloud.ListRoutes : ERROR , %s\n", err.Error())
 			return nil, err
 		}
 		routes = append(routes, r...)
 	}
-	for k,v := range routes{
-		ins, err := c.ins.findInstanceByNodeID(types.NodeName(v.Name))
-		if err != nil {
-			glog.Warningf("Alicloud.ListRoutes(%s): cant find instanceid [%s].\n",v.Name,err.Error())
-			continue
-		}
-		// Fix route name
-		routes[k].TargetNode=types.NodeName(strings.ToLower(ins.InstanceId))
-		glog.V(2).Infof("Alicloud.ListRoutes(): route[%d]=> %v",k,v)
-	}
-	return routes,nil
+	//for k,v := range routes{
+	//	ins, err := c.ins.findInstanceByNode(types.NodeName(v.Name))
+	//	if err != nil {
+	//		glog.Warningf("Alicloud.ListRoutes(%s): cant find instanceid [%s].\n",v.Name,err.Error())
+	//		continue
+	//	}
+	//	// Fix route name
+	//	routes[k].TargetNode=types.NodeName(strings.ToLower(ins.InstanceId))
+	//	glog.V(2).Infof("Alicloud.ListRoutes(): route[%d]=> %v",k,v)
+	//}
+	return routes, nil
 }
 
 // CreateRoute creates the described managed route
 // route.Name will be ignored, although the cloud-provider may use nameHint
 // to create a more user-meaningful name.
 func (c *Cloud) CreateRoute(clusterName string, nameHint string, route *cloudprovider.Route) error {
-	glog.V(2).Infof("Alicloud.CreateRoute(\"%s, %v\")", clusterName, route)
-	ins, err := c.ins.findInstanceByNodeID(route.TargetNode)
+	glog.V(2).Infof("Alicloud.CreateRoute(\"%s, %+v\")", clusterName, route)
+	ins, err := c.ins.findInstanceByNode(types.NodeName(route.TargetNode))
 	if err != nil {
 		return err
 	}
 	cRoute := &cloudprovider.Route{
-		Name: route.Name,
+		Name:            fmt.Sprintf("%s.%s", ins.RegionId, ins.InstanceId),
 		DestinationCIDR: route.DestinationCIDR,
-		TargetNode: types.NodeName(ins.InstanceId),
+		TargetNode:      types.NodeName(ins.InstanceId),
 	}
-	return c.routes.CreateRoute(cRoute,ins)
+	return c.routes.CreateRoute(cRoute, ins.RegionId, ins.VpcAttributes.VpcId)
 }
 
 // DeleteRoute deletes the specified managed route
 // Route should be as returned by ListRoutes
 func (c *Cloud) DeleteRoute(clusterName string, route *cloudprovider.Route) error {
-	glog.V(2).Infof("Alicloud.DeleteRoute(\"%s, %v\")",clusterName, route)
-	ins, err := c.ins.findInstanceByNodeID(route.TargetNode)
+	glog.V(2).Infof("Alicloud.DeleteRoute(\"%s, %+v\")", clusterName, route)
+	ins, err := c.ins.findInstanceByNode(types.NodeName(route.TargetNode))
 	if err != nil {
 		return err
 	}
 	cRoute := &cloudprovider.Route{
-		Name: route.Name,
+		Name:            route.Name,
 		DestinationCIDR: route.DestinationCIDR,
-		TargetNode: types.NodeName(ins.InstanceId),
+		TargetNode:      types.NodeName(ins.InstanceId),
 	}
-	return c.routes.DeleteRoute(cRoute, ins)
+	return c.routes.DeleteRoute(cRoute, ins.RegionId, ins.VpcAttributes.VpcId)
 }
 
 // GetZone returns the Zone containing the current failure zone and locality region that the program is running in
@@ -350,7 +365,11 @@ func (c *Cloud) GetZone() (cloudprovider.Zone, error) {
 	if err != nil {
 		return cloudprovider.Zone{}, errors.New(fmt.Sprintf("Alicloud.GetZone(), error c.meta.InstanceID(): %s", err.Error()))
 	}
-	i, err := c.ins.findInstanceByNodeID(types.NodeName(host))
+	region, err := c.meta.Region()
+	if err != nil {
+		return cloudprovider.Zone{}, errors.New(fmt.Sprintf("Alicloud.GetZone(), error c.meta.Region(): %s", err.Error()))
+	}
+	i, err := c.ins.findInstanceByNode(types.NodeName(fmt.Sprintf("%s.%s", region, host)))
 	if err != nil {
 		return cloudprovider.Zone{}, errors.New(fmt.Sprintf("Alicloud.GetZone(), error findInstanceByNodeID(): %s", err.Error()))
 	}
@@ -402,7 +421,7 @@ func (c *Cloud) Zones() (cloudprovider.Zones, bool) {
 
 // Routes returns an implementation of Routes for Alicloud Services.
 func (c *Cloud) Routes() (cloudprovider.Routes, bool) {
-	if c.vpcID != "" && c.routes != nil{
+	if c.vpcID != "" && c.routes != nil {
 		glog.V(2).Infof("Alicloud: Routes enabled!\n")
 		return c, true
 	}
@@ -412,40 +431,40 @@ func (c *Cloud) Routes() (cloudprovider.Routes, bool) {
 // filterOutByRegion Used for multi-region or multi-vpc. works for single region or vpc too.
 // SLB only support Backends within the same vpc in the same region. so we need to remove the other backends which not in
 // the same region vpc with teh SLB. Keep the most backends
-func (c *Cloud) filterOutByRegion(nodes []*v1.Node, region common.Region) []*v1.Node{
+func (c *Cloud) filterOutByRegion(nodes []*v1.Node, region common.Region) []*v1.Node {
 	result := []*v1.Node{}
 	mvpc := make(map[string]int)
-	for _,node := range nodes{
-		glog.V(2).Infof("filterOutByRegion: for node => %v\n",node.Name)
-		v, err := c.ins.doFindInstance(types.NodeName(node.Name),region);
-		if err != nil{
-			glog.V(2).Infof("filterOutByRegion: c.ins.doFindInstance error => %s\n",err.Error())
+	for _, node := range nodes {
+		glog.V(2).Infof("filterOutByRegion: for node => %v\n", node.Name)
+		v, err := c.ins.findInstanceByNode(types.NodeName(node.Name))
+		if err != nil {
+			glog.V(2).Infof("filterOutByRegion: c.ins.doFindInstance error => %s\n", err.Error())
 			continue
 		}
 		if v != nil {
 
 			mvpc[v.VpcAttributes.VpcId] = mvpc[v.VpcAttributes.VpcId] + 1
 			//result = append(result, node)
-			glog.V(2).Infof("filterOutByRegion: accept node => %v\n",node.Name)
+			glog.V(2).Infof("filterOutByRegion: accept node => %v\n", node.Name)
 		}
 	}
 	max, key := 0, ""
-	for k,v := range mvpc{
-		if v > max{
+	for k, v := range mvpc {
+		if v > max {
 			max = v
 			key = k
 		}
 	}
-	for _,node := range nodes{
-		glog.V(2).Infof("filterOutByRegion: for node => %v\n",node.Name)
-		v, err := c.ins.doFindInstance(types.NodeName(node.Name),region);
-		if err != nil{
-			glog.V(2).Infof("filterOutByRegion: c.ins.doFindInstance error => %s\n",err.Error())
+	for _, node := range nodes {
+		glog.V(2).Infof("filterOutByRegion: for node => %v\n", node.Name)
+		v, err := c.ins.findInstanceByNode(types.NodeName(node.Name))
+		if err != nil {
+			glog.V(2).Infof("filterOutByRegion: c.ins.doFindInstance error => %s\n", err.Error())
 			continue
 		}
-		if v != nil && v.VpcAttributes.VpcId == key{
+		if v != nil && v.VpcAttributes.VpcId == key {
 			result = append(result, node)
-			glog.V(2).Infof("filterOutByRegion: accept node => %v\n",node.Name)
+			glog.V(2).Infof("filterOutByRegion: accept node => %v\n", node.Name)
 		}
 	}
 	return result
@@ -457,7 +476,7 @@ func ExtractAnnotationRequest(service *v1.Service) *AnnotationRequest {
 	i, err := strconv.Atoi(annotation[ServiceAnnotationLoadBalancerBandwidth])
 	if err != nil {
 		glog.V(2).Infof("Warining: Annotation bandwidth must be integer,got [%s],use default number 50.[%s]",
-			annotation[ServiceAnnotationLoadBalancerBandwidth],err.Error())
+			annotation[ServiceAnnotationLoadBalancerBandwidth], err.Error())
 		ar.Bandwidth = DEFAULT_BANDWIDTH
 	} else {
 		ar.Bandwidth = i

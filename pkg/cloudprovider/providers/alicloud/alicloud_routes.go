@@ -33,7 +33,7 @@ type SDKClientRoutes struct {
 
 func NewSDKClientRoutes(access_key_id string, access_key_secret string) (*SDKClientRoutes, error) {
 	c := ecs.NewClient(access_key_id, access_key_secret)
-	c.SetBusinessInfo(KUBERNETES_ALICLOUD_IDENTITY)
+	c.SetUserAgent(KUBERNETES_ALICLOUD_IDENTITY)
 
 	return &SDKClientRoutes{
 		client: c,

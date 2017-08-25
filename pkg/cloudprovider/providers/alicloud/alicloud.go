@@ -177,13 +177,26 @@ func (c *Cloud) EnsureLoadBalancer(clusterName string, service *v1.Service, node
 		return nil, fmt.Errorf("LoadBalancerIP cannot be specified for AWS ELB")
 	}
 	vswitchid := ""
-	for _, v := range ns {
-		i, err := c.ins.findInstanceByNode(types.NodeName(v.Name))
+	if len(ns) <= 0 {
+		var err error
+		vswitchid,err = c.meta.VswitchID()
 		if err != nil {
 			return nil, err
 		}
-		vswitchid = i.VpcAttributes.VSwitchId
-		break
+		glog.V(2).Infof("DEBUG: vswitchid = %s#",vswitchid)
+		if vswitchid == "" {
+			glog.Warningf("Alicloud.EnsureLoadBalancer: can not find vswitch id, this will prevent you " +
+				"from creating VPC intranet SLB. But classic LB is still avaliable.")
+		}
+	}else {
+		for _, v := range ns {
+			i, err := c.ins.findInstanceByNode(types.NodeName(v.Name))
+			if err != nil {
+				return nil, err
+			}
+			vswitchid = i.VpcAttributes.VSwitchId
+			break
+		}
 	}
 
 	lb, err := c.slb.EnsureLoadBalancer(service, ns, vswitchid)
@@ -487,6 +500,7 @@ func ExtractAnnotationRequest(service *v1.Service) *AnnotationRequest {
 	} else {
 		ar.AddressType = slb.InternetAddressType
 	}
+	ar.SLBNetworkType = annotation[ServiceAnnotationLoadBalancerSLBNetworkType]
 
 	chargtype := annotation[ServiceAnnotationLoadBalancerChargeType]
 	if chargtype != "" {

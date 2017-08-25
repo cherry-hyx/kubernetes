@@ -51,6 +51,7 @@ var cloudproviders = []string{
 	"rackspace",
 	"vsphere",
 	"alicloud",
+	"external",
 }
 
 func ValidateMasterConfiguration(c *kubeadm.MasterConfiguration) field.ErrorList {

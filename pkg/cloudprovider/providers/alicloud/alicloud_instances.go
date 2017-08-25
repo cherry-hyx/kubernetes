@@ -35,12 +35,12 @@ func NewSDKClientINS(access_key_id string, access_key_secret string) *SDKClientI
 	ins := &SDKClientINS{
 		c: ecs.NewClient(access_key_id, access_key_secret),
 	}
-	ins.c.SetBusinessInfo(KUBERNETES_ALICLOUD_IDENTITY)
+	ins.c.SetUserAgent(KUBERNETES_ALICLOUD_IDENTITY)
 	return ins
 }
 
-// we use ':' separated nodeid which looks like 'cn-hangzhou/i-v98dklsmnxkkgiiil7' to identify node
-// This is the format of "REGION:NODEID"
+// we use '.' separated nodeid which looks like 'cn-hangzhou.i-v98dklsmnxkkgiiil7' to identify node
+// This is the format of "REGION.NODEID"
 func nodeid(nodename types.NodeName) (common.Region, types.NodeName, error) {
 	name := strings.Split(string(nodename), ".")
 	if len(name) < 2 {

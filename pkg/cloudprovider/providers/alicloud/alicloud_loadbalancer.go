@@ -26,6 +26,7 @@ import (
 	"k8s.io/kubernetes/pkg/api/v1"
 	"k8s.io/kubernetes/pkg/cloudprovider"
 	"strings"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // ServiceAnnotationLoadBalancerSSLPorts is the annotation used on the service
@@ -34,6 +35,8 @@ import (
 const ServiceAnnotationLoadBalancerProtocolPort = "service.beta.kubernetes.io/alicloud-loadbalancer-ProtocolPort"
 
 const ServiceAnnotationLoadBalancerAddressType = "service.beta.kubernetes.io/alicloud-loadbalancer-AddressType"
+
+const ServiceAnnotationLoadBalancerSLBNetworkType = "service.beta.kubernetes.io/alicloud-loadbalancer-SLBNetworkType"
 
 const ServiceAnnotationLoadBalancerChargeType = "service.beta.kubernetes.io/alicloud-loadbalancer-ChargeType"
 
@@ -64,6 +67,8 @@ const ServiceAnnotationLoadBalancerHealthCheckTimeout = "service.beta.kubernetes
 type AnnotationRequest struct {
 	SSLPorts    string
 	AddressType slb.AddressType
+	SLBNetworkType string
+
 	ChargeType  slb.InternetChargeType
 	Region      common.Region
 	Bandwidth   int
@@ -87,7 +92,7 @@ type SDKClientSLB struct {
 
 func NewSDKClientSLB(key string, secret string) *SDKClientSLB {
 	client := slb.NewClient(key, secret)
-	client.SetBusinessInfo(KUBERNETES_ALICLOUD_IDENTITY)
+	client.SetUserAgent(KUBERNETES_ALICLOUD_IDENTITY)
 	return &SDKClientSLB{c: client}
 }
 func (s *SDKClientSLB) GetLoadBalancerByName(lbn string, service *v1.Service) (*slb.LoadBalancerType, bool, error) {
@@ -122,9 +127,16 @@ func (s *SDKClientSLB) EnsureLoadBalancer(service *v1.Service, nodes []*v1.Node,
 	if err != nil {
 		return nil, err
 	}
-	opts := s.getLoadBalancerOpts(service)
+	ar := ExtractAnnotationRequest(service)
+	opts := s.getLoadBalancerOpts(ar)
+	if strings.Compare(string(opts.AddressType) ,
+		string(slb.IntranetAddressType)) == 0 && ar.SLBNetworkType != "classic"{
+
+		glog.V(2).Infof("Create VPC intranet SLB, Alicloud.AddreesType:%s, " +
+			"slb: %s, switch: %s\n",opts.AddressType,slb.IntranetAddressType,vswitchid)
+		opts.VSwitchId = vswitchid
+	}
 	opts.LoadBalancerName = lbn
-	opts.VSwitchId = vswitchid
 	if !exists {
 		lbr, err := s.c.CreateLoadBalancer(opts)
 		if err != nil {
@@ -572,9 +584,9 @@ func (s *SDKClientSLB) createListener(lb *slb.LoadBalancerType, pp PortListener)
 	return nil
 }
 
-func (s *SDKClientSLB) getLoadBalancerOpts(service *v1.Service) *slb.CreateLoadBalancerArgs {
+func (s *SDKClientSLB) getLoadBalancerOpts(ar *AnnotationRequest) *slb.CreateLoadBalancerArgs {
 
-	ar := ExtractAnnotationRequest(service)
+
 	return &slb.CreateLoadBalancerArgs{
 		AddressType:        ar.AddressType,
 		InternetChargeType: ar.ChargeType,
@@ -589,20 +601,30 @@ func (s *SDKClientSLB) diffServers(nodes []*v1.Node, lb *slb.LoadBalancerType) (
 	additions, deletions := []slb.BackendServerType{}, []slb.BackendServerType{}
 	for _, n1 := range nodes {
 		found := false
+		_,id,err := nodeid(types.NodeName(n1.Spec.ExternalID))
 		for _, n2 := range lb.BackendServers.BackendServer {
-			if n1.Spec.ExternalID == n2.ServerId {
+			if err != nil{
+				glog.Errorf("Alicloud.diffServers(): Spec.ExternalID=%s is not right.skip added",n1.Spec.ExternalID)
+				continue
+			}
+			if string(id) == n2.ServerId {
 				found = true
 				break
 			}
 		}
 		if !found {
-			additions = append(additions, slb.BackendServerType{ServerId: n1.Spec.ExternalID, Weight: DEFAULT_SERVER_WEIGHT})
+			additions = append(additions, slb.BackendServerType{ServerId: string(id), Weight: DEFAULT_SERVER_WEIGHT})
 		}
 	}
 	for _, n1 := range lb.BackendServers.BackendServer {
 		found := false
 		for _, n2 := range nodes {
-			if n1.ServerId == n2.Spec.ExternalID {
+			_,id,err := nodeid(types.NodeName(n2.Spec.ExternalID))
+			if err != nil{
+				glog.Errorf("Alicloud.diffServers(): Spec.ExternalID=%s is not right. skip deleted",n2.Spec.ExternalID)
+				continue
+			}
+			if n1.ServerId == string(id) {
 				found = true
 				break
 			}

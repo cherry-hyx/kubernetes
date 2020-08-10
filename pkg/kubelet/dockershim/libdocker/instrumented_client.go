@@ -1,3 +1,5 @@
+// +build !dockerless
+
 /*
 Copyright 2015 The Kubernetes Authors.
 
@@ -32,7 +34,7 @@ type instrumentedInterface struct {
 	client Interface
 }
 
-// Creates an instrumented Interface from an existing Interface.
+// NewInstrumentedInterface creates an instrumented Interface from an existing Interface.
 func NewInstrumentedInterface(dockerClient Interface) Interface {
 	return instrumentedInterface{
 		client: dockerClient,
@@ -42,7 +44,7 @@ func NewInstrumentedInterface(dockerClient Interface) Interface {
 // recordOperation records the duration of the operation.
 func recordOperation(operation string, start time.Time) {
 	metrics.DockerOperations.WithLabelValues(operation).Inc()
-	metrics.DockerOperationsLatency.WithLabelValues(operation).Observe(metrics.SinceInMicroseconds(start))
+	metrics.DockerOperationsLatency.WithLabelValues(operation).Observe(metrics.SinceInSeconds(start))
 }
 
 // recordError records error for metric if an error occurred.
@@ -70,6 +72,15 @@ func (in instrumentedInterface) InspectContainer(id string) (*dockertypes.Contai
 	defer recordOperation(operation, time.Now())
 
 	out, err := in.client.InspectContainer(id)
+	recordError(operation, err)
+	return out, err
+}
+
+func (in instrumentedInterface) InspectContainerWithSize(id string) (*dockertypes.ContainerJSON, error) {
+	const operation = "inspect_container_withsize"
+	defer recordOperation(operation, time.Now())
+
+	out, err := in.client.InspectContainerWithSize(id)
 	recordError(operation, err)
 	return out, err
 }
@@ -251,4 +262,13 @@ func (in instrumentedInterface) ResizeContainerTTY(id string, height, width uint
 	err := in.client.ResizeContainerTTY(id, height, width)
 	recordError(operation, err)
 	return err
+}
+
+func (in instrumentedInterface) GetContainerStats(id string) (*dockertypes.StatsJSON, error) {
+	const operation = "stats"
+	defer recordOperation(operation, time.Now())
+
+	out, err := in.client.GetContainerStats(id)
+	recordError(operation, err)
+	return out, err
 }

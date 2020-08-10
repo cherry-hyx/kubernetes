@@ -14,11 +14,13 @@ go_library(
         "types.go",
         "zz_generated.deepcopy.go",
     ],
+    importpath = "k8s.io/kubernetes/pkg/apis/certificates",
     deps = [
-        "//vendor/k8s.io/apimachinery/pkg/apis/meta/v1:go_default_library",
-        "//vendor/k8s.io/apimachinery/pkg/conversion:go_default_library",
-        "//vendor/k8s.io/apimachinery/pkg/runtime:go_default_library",
-        "//vendor/k8s.io/apimachinery/pkg/runtime/schema:go_default_library",
+        "//pkg/apis/core:go_default_library",
+        "//staging/src/k8s.io/apimachinery/pkg/apis/meta/v1:go_default_library",
+        "//staging/src/k8s.io/apimachinery/pkg/runtime:go_default_library",
+        "//staging/src/k8s.io/apimachinery/pkg/runtime/schema:go_default_library",
+        "//staging/src/k8s.io/apimachinery/pkg/util/sets:go_default_library",
     ],
 )
 
@@ -35,6 +37,7 @@ filegroup(
         ":package-srcs",
         "//pkg/apis/certificates/fuzzer:all-srcs",
         "//pkg/apis/certificates/install:all-srcs",
+        "//pkg/apis/certificates/v1:all-srcs",
         "//pkg/apis/certificates/v1beta1:all-srcs",
         "//pkg/apis/certificates/validation:all-srcs",
     ],

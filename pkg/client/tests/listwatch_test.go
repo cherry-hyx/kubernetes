@@ -20,19 +20,14 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
-	"time"
 
-	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	clientset "k8s.io/client-go/kubernetes"
 	restclient "k8s.io/client-go/rest"
 	. "k8s.io/client-go/tools/cache"
 	utiltesting "k8s.io/client-go/util/testing"
-	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/testapi"
-	clientset "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset"
 )
 
 func parseSelectorOrDie(s string) fields.Selector {
@@ -46,13 +41,12 @@ func parseSelectorOrDie(s string) fields.Selector {
 // buildQueryValues is a convenience function for knowing if a namespace should be in a query param or not
 func buildQueryValues(query url.Values) url.Values {
 	v := url.Values{}
-	if query != nil {
-		for key, values := range query {
-			for _, value := range values {
-				v.Add(key, value)
-			}
+	for key, values := range query {
+		for _, value := range values {
+			v.Add(key, value)
 		}
 	}
+
 	return v
 }
 
@@ -61,7 +55,7 @@ func buildLocation(resourcePath string, query url.Values) string {
 }
 
 func TestListWatchesCanList(t *testing.T) {
-	fieldSelectorQueryParamName := metav1.FieldSelectorQueryParam(api.Registry.GroupOrDie(v1.GroupName).GroupVersion.String())
+	fieldSelectorQueryParamName := metav1.FieldSelectorQueryParam("v1")
 	table := []struct {
 		location      string
 		resource      string
@@ -70,7 +64,7 @@ func TestListWatchesCanList(t *testing.T) {
 	}{
 		// Node
 		{
-			location:      testapi.Default.ResourcePath("nodes", metav1.NamespaceAll, ""),
+			location:      "/api/v1/nodes",
 			resource:      "nodes",
 			namespace:     metav1.NamespaceAll,
 			fieldSelector: parseSelectorOrDie(""),
@@ -78,7 +72,7 @@ func TestListWatchesCanList(t *testing.T) {
 		// pod with "assigned" field selector.
 		{
 			location: buildLocation(
-				testapi.Default.ResourcePath("pods", metav1.NamespaceAll, ""),
+				"/api/v1/pods",
 				buildQueryValues(url.Values{fieldSelectorQueryParamName: []string{"spec.host="}})),
 			resource:      "pods",
 			namespace:     metav1.NamespaceAll,
@@ -87,7 +81,7 @@ func TestListWatchesCanList(t *testing.T) {
 		// pod in namespace "foo"
 		{
 			location: buildLocation(
-				testapi.Default.ResourcePath("pods", "foo", ""),
+				"/api/v1/namespaces/foo/pods",
 				buildQueryValues(url.Values{fieldSelectorQueryParamName: []string{"spec.host="}})),
 			resource:      "pods",
 			namespace:     "foo",
@@ -102,8 +96,8 @@ func TestListWatchesCanList(t *testing.T) {
 		}
 		server := httptest.NewServer(&handler)
 		defer server.Close()
-		client := clientset.NewForConfigOrDie(&restclient.Config{Host: server.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &api.Registry.GroupOrDie(v1.GroupName).GroupVersion}})
-		lw := NewListWatchFromClient(client.Core().RESTClient(), item.resource, item.namespace, item.fieldSelector)
+		client := clientset.NewForConfigOrDie(&restclient.Config{Host: server.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &schema.GroupVersion{Group: "", Version: "v1"}}})
+		lw := NewListWatchFromClient(client.CoreV1().RESTClient(), item.resource, item.namespace, item.fieldSelector)
 		lw.DisableChunking = true
 		// This test merely tests that the correct request is made.
 		lw.List(metav1.ListOptions{})
@@ -112,7 +106,7 @@ func TestListWatchesCanList(t *testing.T) {
 }
 
 func TestListWatchesCanWatch(t *testing.T) {
-	fieldSelectorQueryParamName := metav1.FieldSelectorQueryParam(api.Registry.GroupOrDie(v1.GroupName).GroupVersion.String())
+	fieldSelectorQueryParamName := metav1.FieldSelectorQueryParam("v1")
 	table := []struct {
 		rv            string
 		location      string
@@ -123,7 +117,7 @@ func TestListWatchesCanWatch(t *testing.T) {
 		// Node
 		{
 			location: buildLocation(
-				testapi.Default.ResourcePath("nodes", metav1.NamespaceAll, ""),
+				"/api/v1/nodes",
 				buildQueryValues(url.Values{"watch": []string{"true"}})),
 			rv:            "",
 			resource:      "nodes",
@@ -132,7 +126,7 @@ func TestListWatchesCanWatch(t *testing.T) {
 		},
 		{
 			location: buildLocation(
-				testapi.Default.ResourcePath("nodes", metav1.NamespaceAll, ""),
+				"/api/v1/nodes",
 				buildQueryValues(url.Values{"resourceVersion": []string{"42"}, "watch": []string{"true"}})),
 			rv:            "42",
 			resource:      "nodes",
@@ -142,7 +136,7 @@ func TestListWatchesCanWatch(t *testing.T) {
 		// pod with "assigned" field selector.
 		{
 			location: buildLocation(
-				testapi.Default.ResourcePath("pods", metav1.NamespaceAll, ""),
+				"/api/v1/pods",
 				buildQueryValues(url.Values{fieldSelectorQueryParamName: []string{"spec.host="}, "resourceVersion": []string{"0"}, "watch": []string{"true"}})),
 			rv:            "0",
 			resource:      "pods",
@@ -152,7 +146,7 @@ func TestListWatchesCanWatch(t *testing.T) {
 		// pod with namespace foo and assigned field selector
 		{
 			location: buildLocation(
-				testapi.Default.ResourcePath("pods", "foo", ""),
+				"/api/v1/namespaces/foo/pods",
 				buildQueryValues(url.Values{fieldSelectorQueryParamName: []string{"spec.host="}, "resourceVersion": []string{"0"}, "watch": []string{"true"}})),
 			rv:            "0",
 			resource:      "pods",
@@ -169,61 +163,10 @@ func TestListWatchesCanWatch(t *testing.T) {
 		}
 		server := httptest.NewServer(&handler)
 		defer server.Close()
-		client := clientset.NewForConfigOrDie(&restclient.Config{Host: server.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &api.Registry.GroupOrDie(v1.GroupName).GroupVersion}})
-		lw := NewListWatchFromClient(client.Core().RESTClient(), item.resource, item.namespace, item.fieldSelector)
+		client := clientset.NewForConfigOrDie(&restclient.Config{Host: server.URL, ContentConfig: restclient.ContentConfig{GroupVersion: &schema.GroupVersion{Group: "", Version: "v1"}}})
+		lw := NewListWatchFromClient(client.CoreV1().RESTClient(), item.resource, item.namespace, item.fieldSelector)
 		// This test merely tests that the correct request is made.
 		lw.Watch(metav1.ListOptions{ResourceVersion: item.rv})
 		handler.ValidateRequest(t, item.location, "GET", nil)
-	}
-}
-
-type lw struct {
-	list  runtime.Object
-	watch watch.Interface
-}
-
-func (w lw) List(options metav1.ListOptions) (runtime.Object, error) {
-	return w.list, nil
-}
-
-func (w lw) Watch(options metav1.ListOptions) (watch.Interface, error) {
-	return w.watch, nil
-}
-
-func TestListWatchUntil(t *testing.T) {
-	fw := watch.NewFake()
-	go func() {
-		var obj *v1.Pod
-		fw.Modify(obj)
-	}()
-	listwatch := lw{
-		list:  &v1.PodList{Items: []v1.Pod{{}}},
-		watch: fw,
-	}
-
-	conditions := []watch.ConditionFunc{
-		func(event watch.Event) (bool, error) {
-			t.Logf("got %#v", event)
-			return event.Type == watch.Added, nil
-		},
-		func(event watch.Event) (bool, error) {
-			t.Logf("got %#v", event)
-			return event.Type == watch.Modified, nil
-		},
-	}
-
-	timeout := 10 * time.Second
-	lastEvent, err := ListWatchUntil(timeout, listwatch, conditions...)
-	if err != nil {
-		t.Fatalf("expected nil error, got %#v", err)
-	}
-	if lastEvent == nil {
-		t.Fatal("expected an event")
-	}
-	if lastEvent.Type != watch.Modified {
-		t.Fatalf("expected MODIFIED event type, got %v", lastEvent.Type)
-	}
-	if got, isPod := lastEvent.Object.(*v1.Pod); !isPod {
-		t.Fatalf("expected a pod event, got %#v", got)
 	}
 }

@@ -19,13 +19,14 @@ package network
 // Tests network performance using iperf or other containers.
 import (
 	"fmt"
-	"math"
 	"time"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
-	"k8s.io/api/core/v1"
+	"github.com/onsi/ginkgo"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/kubernetes/test/e2e/framework"
+	e2enode "k8s.io/kubernetes/test/e2e/framework/node"
+	e2eservice "k8s.io/kubernetes/test/e2e/framework/service"
+	e2eskipper "k8s.io/kubernetes/test/e2e/framework/skipper"
 	imageutils "k8s.io/kubernetes/test/utils/image"
 )
 
@@ -36,9 +37,8 @@ const (
 	smallClusterTimeout = 200 * time.Second
 )
 
-// Declared as Flakey since it has not been proven to run in parallel on small nodes or slow networks in CI
-// TODO jayunit100 : Retag this test according to semantics from #22401
-var _ = SIGDescribe("Networking IPerf [Experimental] [Slow] [Feature:Networking-Performance]", func() {
+// networkingIPerf test runs iperf on a container in either IPv4 or IPv6 mode.
+func networkingIPerfTest(isIPv6 bool) {
 
 	f := framework.NewDefaultFramework("network-perf")
 
@@ -49,26 +49,33 @@ var _ = SIGDescribe("Networking IPerf [Experimental] [Slow] [Feature:Networking-
 	numServer := 1
 	maxBandwidthBits := gceBandwidthBitsEstimate
 
-	It(fmt.Sprintf("should transfer ~ 1GB onto the service endpoint %v servers (maximum of %v clients)", numServer, numClient), func() {
-		nodes := framework.GetReadySchedulableNodesOrDie(f.ClientSet)
+	familyStr := ""
+	if isIPv6 {
+		familyStr = "-V "
+	}
+
+	ginkgo.It(fmt.Sprintf("should transfer ~ 1GB onto the service endpoint %v servers (maximum of %v clients)", numServer, numClient), func() {
+		nodes, err := e2enode.GetReadySchedulableNodes(f.ClientSet)
+		framework.ExpectNoError(err)
 		totalPods := len(nodes.Items)
 		// for a single service, we expect to divide bandwidth between the network.  Very crude estimate.
 		expectedBandwidth := int(float64(maxBandwidthBits) / float64(totalPods))
-		Expect(totalPods).NotTo(Equal(0))
 		appName := "iperf-e2e"
-		err, _ := f.CreateServiceForSimpleAppWithPods(
+		_, err = e2eservice.CreateServiceForSimpleAppWithPods(
+			f.ClientSet,
 			8001,
 			8002,
+			f.Namespace.Name,
 			appName,
 			func(n v1.Node) v1.PodSpec {
 				return v1.PodSpec{
 					Containers: []v1.Container{{
-						Name:  "iperf-server",
-						Image: imageutils.GetE2EImage(imageutils.Iperf),
+						Name:    "iperf-server",
+						Image:   imageutils.GetE2EImage(imageutils.Agnhost),
+						Command: []string{"/bin/sh"},
 						Args: []string{
-							"/bin/sh",
 							"-c",
-							"/usr/local/bin/iperf -s -p 8001 ",
+							"/usr/local/bin/iperf " + familyStr + "-s -p 8001 ",
 						},
 						Ports: []v1.ContainerPort{{ContainerPort: 8001}},
 					}},
@@ -85,18 +92,20 @@ var _ = SIGDescribe("Networking IPerf [Experimental] [Slow] [Feature:Networking-
 			framework.Failf("Fatal error waiting for iperf server endpoint : %v", err)
 		}
 
-		iperfClientPodLabels := f.CreatePodsPerNodeForSimpleApp(
+		iperfClientPodLabels := e2enode.CreatePodsPerNodeForSimpleApp(
+			f.ClientSet,
+			f.Namespace.Name,
 			"iperf-e2e-cli",
 			func(n v1.Node) v1.PodSpec {
 				return v1.PodSpec{
 					Containers: []v1.Container{
 						{
-							Name:  "iperf-client",
-							Image: imageutils.GetE2EImage(imageutils.Iperf),
+							Name:    "iperf-client",
+							Image:   imageutils.GetE2EImage(imageutils.Agnhost),
+							Command: []string{"/bin/sh"},
 							Args: []string{
-								"/bin/sh",
 								"-c",
-								"/usr/local/bin/iperf -c service-for-" + appName + " -p 8002 --reportstyle C && sleep 5",
+								"/usr/local/bin/iperf " + familyStr + "-c service-for-" + appName + " -p 8002 --reportstyle C && sleep 5",
 							},
 						},
 					},
@@ -105,15 +114,13 @@ var _ = SIGDescribe("Networking IPerf [Experimental] [Slow] [Feature:Networking-
 			},
 			numClient,
 		)
+		expectedCli := numClient
+		if len(nodes.Items) < expectedCli {
+			expectedCli = len(nodes.Items)
+		}
 
 		framework.Logf("Reading all perf results to stdout.")
 		framework.Logf("date,cli,cliPort,server,serverPort,id,interval,transferBits,bandwidthBits")
-
-		// Calculate expected number of clients based on total nodes.
-		expectedCli := func() int {
-			nodes := framework.GetReadySchedulableNodesOrDie(f.ClientSet)
-			return int(math.Min(float64(len(nodes.Items)), float64(numClient)))
-		}()
 
 		// Extra 1/10 second per client.
 		iperfTimeout := smallClusterTimeout + (time.Duration(expectedCli/10) * time.Second)
@@ -145,12 +152,26 @@ var _ = SIGDescribe("Networking IPerf [Experimental] [Slow] [Feature:Networking-
 					}
 				})
 		}
-		fmt.Println("[begin] Node,Bandwith CSV")
+		fmt.Println("[begin] Node,Bandwidth CSV")
 		fmt.Println(iperfResults.ToTSV())
-		fmt.Println("[end] Node,Bandwith CSV")
+		fmt.Println("[end] Node,Bandwidth CSV")
 
 		for ipClient, bandwidth := range iperfResults.BandwidthMap {
 			framework.Logf("%v had bandwidth %v.  Ratio to expected (%v) was %f", ipClient, bandwidth, expectedBandwidth, float64(bandwidth)/float64(expectedBandwidth))
 		}
 	})
+}
+
+// Declared as Flakey since it has not been proven to run in parallel on small nodes or slow networks in CI
+// TODO jayunit100 : Retag this test according to semantics from #22401
+var _ = SIGDescribe("Networking IPerf IPv4 [Experimental] [Feature:Networking-IPv4] [Slow] [Feature:Networking-Performance]", func() {
+	networkingIPerfTest(false)
+})
+
+// Declared as Flakey since it has not been proven to run in parallel on small nodes or slow networks in CI
+// TODO jayunit100 : Retag this test according to semantics from #22401
+var _ = SIGDescribe("Networking IPerf IPv6 [Experimental] [Feature:Networking-IPv6] [Slow] [Feature:Networking-Performance] [LinuxOnly]", func() {
+	// IPv6 is not supported on Windows.
+	e2eskipper.SkipIfNodeOSDistroIs("windows")
+	networkingIPerfTest(true)
 })

@@ -20,6 +20,7 @@ package ipvs
 
 import (
 	"fmt"
+	"time"
 
 	utilexec "k8s.io/utils/exec"
 )
@@ -33,14 +34,6 @@ type runner struct {
 }
 
 func (runner *runner) Flush() error {
-	return fmt.Errorf("IPVS not supported for this platform")
-}
-
-func (runner *runner) EnsureVirtualServerAddressBind(*VirtualServer, string) (bool, error) {
-	return false, fmt.Errorf("IPVS not supported for this platform")
-}
-
-func (runner *runner) UnbindVirtualServerAddress(*VirtualServer, string) error {
 	return fmt.Errorf("IPVS not supported for this platform")
 }
 
@@ -73,6 +66,14 @@ func (runner *runner) GetRealServers(*VirtualServer) ([]*RealServer, error) {
 }
 
 func (runner *runner) DeleteRealServer(*VirtualServer, *RealServer) error {
+	return fmt.Errorf("IPVS not supported for this platform")
+}
+
+func (runner *runner) UpdateRealServer(*VirtualServer, *RealServer) error {
+	return fmt.Errorf("IPVS not supported for this platform")
+}
+
+func (runner *runner) ConfigureTimeouts(time.Duration, time.Duration, time.Duration) error {
 	return fmt.Errorf("IPVS not supported for this platform")
 }
 

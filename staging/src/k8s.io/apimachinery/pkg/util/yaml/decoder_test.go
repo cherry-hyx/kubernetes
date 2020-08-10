@@ -22,11 +22,94 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"math/rand"
 	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestYAMLDecoderReadBytesLength(t *testing.T) {
+	d := `---
+stuff: 1
+	test-foo: 1
+`
+	testCases := []struct {
+		bufLen    int
+		expectLen int
+		expectErr error
+	}{
+		{len(d), len(d), nil},
+		{len(d) + 10, len(d), nil},
+		{len(d) - 10, len(d) - 10, io.ErrShortBuffer},
+	}
+
+	for i, testCase := range testCases {
+		r := NewDocumentDecoder(ioutil.NopCloser(bytes.NewReader([]byte(d))))
+		b := make([]byte, testCase.bufLen)
+		n, err := r.Read(b)
+		if err != testCase.expectErr || n != testCase.expectLen {
+			t.Fatalf("%d: unexpected body: %d / %v", i, n, err)
+		}
+	}
+}
+
+func TestBigYAML(t *testing.T) {
+	d := `
+stuff: 1
+`
+	maxLen := 5 * 1024 * 1024
+	bufferLen := 4 * 1024
+	//  maxLen 5 M
+	dd := strings.Repeat(d, 512*1024)
+	r := NewDocumentDecoder(ioutil.NopCloser(bytes.NewReader([]byte(dd[:maxLen-1]))))
+	b := make([]byte, bufferLen)
+	n, err := r.Read(b)
+	if err != io.ErrShortBuffer {
+		t.Fatalf("expected ErrShortBuffer: %d / %v", n, err)
+	}
+	b = make([]byte, maxLen)
+	n, err = r.Read(b)
+	if err != nil {
+		t.Fatalf("expected nil: %d / %v", n, err)
+	}
+	r = NewDocumentDecoder(ioutil.NopCloser(bytes.NewReader([]byte(dd))))
+	b = make([]byte, maxLen)
+	n, err = r.Read(b)
+	if err != bufio.ErrTooLong {
+		t.Fatalf("bufio.Scanner: token too long: %d / %v", n, err)
+	}
+}
+
+func TestYAMLDecoderCallsAfterErrShortBufferRestOfFrame(t *testing.T) {
+	d := `---
+stuff: 1
+	test-foo: 1`
+	r := NewDocumentDecoder(ioutil.NopCloser(bytes.NewReader([]byte(d))))
+	b := make([]byte, 12)
+	n, err := r.Read(b)
+	if err != io.ErrShortBuffer || n != 12 {
+		t.Fatalf("expected ErrShortBuffer: %d / %v", n, err)
+	}
+	expected := "---\nstuff: 1"
+	if string(b) != expected {
+		t.Fatalf("expected bytes read to be: %s  got: %s", expected, string(b))
+	}
+	b = make([]byte, 13)
+	n, err = r.Read(b)
+	if err != nil || n != 13 {
+		t.Fatalf("expected nil: %d / %v", n, err)
+	}
+	expected = "\n\ttest-foo: 1"
+	if string(b) != expected {
+		t.Fatalf("expected bytes read to be: '%s'  got: '%s'", expected, string(b))
+	}
+	b = make([]byte, 15)
+	n, err = r.Read(b)
+	if err != io.EOF || n != 0 {
+		t.Fatalf("expected EOF: %d / %v", n, err)
+	}
+}
 
 func TestSplitYAMLDocument(t *testing.T) {
 	testCases := []struct {
@@ -141,8 +224,8 @@ stuff: 1
 		t.Fatal("expected error with yaml: violate, got no error")
 	}
 	fmt.Printf("err: %s\n", err.Error())
-	if !strings.Contains(err.Error(), "yaml: line 2:") {
-		t.Fatalf("expected %q to have 'yaml: line 2:' found a tab character", err.Error())
+	if !strings.Contains(err.Error(), "yaml: line 3:") {
+		t.Fatalf("expected %q to have 'yaml: line 3:' found a tab character", err.Error())
 	}
 }
 

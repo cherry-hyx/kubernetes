@@ -13,9 +13,10 @@
 # limitations under the License.
 
 REGISTRY ?= gcr.io/kubernetes-e2e-test-images
-GOARM=7
+GOARM ?= 7
+DOCKER_CERT_BASE_PATH ?=
 QEMUVERSION=v2.9.1
-GOLANG_VERSION=1.8.3
+GOLANG_VERSION=1.15rc2
 export
 
 ifndef WHAT
@@ -37,4 +38,7 @@ all-container:
 all-push: all-container
 	./image-util.sh push $(WHAT)
 
-.PHONY: all all-push all-container
+all-build-and-push:
+	./image-util.sh build_and_push ${WHAT}
+
+.PHONY: all all-build-and-push all-push all-container

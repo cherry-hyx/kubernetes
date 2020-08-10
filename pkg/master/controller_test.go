@@ -21,40 +21,47 @@ import (
 	"reflect"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
+	discoveryv1beta1 "k8s.io/api/discovery/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/kubernetes/fake"
 	core "k8s.io/client-go/testing"
-	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/fake"
 	"k8s.io/kubernetes/pkg/master/reconcilers"
 )
 
 func TestReconcileEndpoints(t *testing.T) {
 	ns := metav1.NamespaceDefault
-	om := func(name string) metav1.ObjectMeta {
-		return metav1.ObjectMeta{Namespace: ns, Name: name}
+	om := func(name string, skipMirrorLabel bool) metav1.ObjectMeta {
+		o := metav1.ObjectMeta{Namespace: ns, Name: name}
+		if skipMirrorLabel {
+			o.Labels = map[string]string{
+				discoveryv1beta1.LabelSkipMirror: "true",
+			}
+		}
+		return o
 	}
-	reconcile_tests := []struct {
+	reconcileTests := []struct {
 		testName          string
 		serviceName       string
 		ip                string
-		endpointPorts     []api.EndpointPort
+		endpointPorts     []corev1.EndpointPort
 		additionalMasters int
-		endpoints         *api.EndpointsList
-		expectUpdate      *api.Endpoints // nil means none expected
-		expectCreate      *api.Endpoints // nil means none expected
+		endpoints         *corev1.EndpointsList
+		expectUpdate      *corev1.Endpoints // nil means none expected
+		expectCreate      *corev1.Endpoints // nil means none expected
 	}{
 		{
 			testName:      "no existing endpoints",
 			serviceName:   "foo",
 			ip:            "1.2.3.4",
-			endpointPorts: []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			endpointPorts: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 			endpoints:     nil,
-			expectCreate: &api.Endpoints{
-				ObjectMeta: om("foo"),
-				Subsets: []api.EndpointSubset{{
-					Addresses: []api.EndpointAddress{{IP: "1.2.3.4"}},
-					Ports:     []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			expectCreate: &corev1.Endpoints{
+				ObjectMeta: om("foo", true),
+				Subsets: []corev1.EndpointSubset{{
+					Addresses: []corev1.EndpointAddress{{IP: "1.2.3.4"}},
+					Ports:     []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 				}},
 			},
 		},
@@ -62,13 +69,13 @@ func TestReconcileEndpoints(t *testing.T) {
 			testName:      "existing endpoints satisfy",
 			serviceName:   "foo",
 			ip:            "1.2.3.4",
-			endpointPorts: []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
-			endpoints: &api.EndpointsList{
-				Items: []api.Endpoints{{
-					ObjectMeta: om("foo"),
-					Subsets: []api.EndpointSubset{{
-						Addresses: []api.EndpointAddress{{IP: "1.2.3.4"}},
-						Ports:     []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			endpointPorts: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			endpoints: &corev1.EndpointsList{
+				Items: []corev1.Endpoints{{
+					ObjectMeta: om("foo", true),
+					Subsets: []corev1.EndpointSubset{{
+						Addresses: []corev1.EndpointAddress{{IP: "1.2.3.4"}},
+						Ports:     []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 					}},
 				}},
 			},
@@ -77,21 +84,21 @@ func TestReconcileEndpoints(t *testing.T) {
 			testName:      "existing endpoints satisfy but too many",
 			serviceName:   "foo",
 			ip:            "1.2.3.4",
-			endpointPorts: []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
-			endpoints: &api.EndpointsList{
-				Items: []api.Endpoints{{
-					ObjectMeta: om("foo"),
-					Subsets: []api.EndpointSubset{{
-						Addresses: []api.EndpointAddress{{IP: "1.2.3.4"}, {IP: "4.3.2.1"}},
-						Ports:     []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			endpointPorts: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			endpoints: &corev1.EndpointsList{
+				Items: []corev1.Endpoints{{
+					ObjectMeta: om("foo", true),
+					Subsets: []corev1.EndpointSubset{{
+						Addresses: []corev1.EndpointAddress{{IP: "1.2.3.4"}, {IP: "4.3.2.1"}},
+						Ports:     []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 					}},
 				}},
 			},
-			expectUpdate: &api.Endpoints{
-				ObjectMeta: om("foo"),
-				Subsets: []api.EndpointSubset{{
-					Addresses: []api.EndpointAddress{{IP: "1.2.3.4"}},
-					Ports:     []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			expectUpdate: &corev1.Endpoints{
+				ObjectMeta: om("foo", true),
+				Subsets: []corev1.EndpointSubset{{
+					Addresses: []corev1.EndpointAddress{{IP: "1.2.3.4"}},
+					Ports:     []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 				}},
 			},
 		},
@@ -99,33 +106,33 @@ func TestReconcileEndpoints(t *testing.T) {
 			testName:          "existing endpoints satisfy but too many + extra masters",
 			serviceName:       "foo",
 			ip:                "1.2.3.4",
-			endpointPorts:     []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			endpointPorts:     []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 			additionalMasters: 3,
-			endpoints: &api.EndpointsList{
-				Items: []api.Endpoints{{
-					ObjectMeta: om("foo"),
-					Subsets: []api.EndpointSubset{{
-						Addresses: []api.EndpointAddress{
+			endpoints: &corev1.EndpointsList{
+				Items: []corev1.Endpoints{{
+					ObjectMeta: om("foo", true),
+					Subsets: []corev1.EndpointSubset{{
+						Addresses: []corev1.EndpointAddress{
 							{IP: "1.2.3.4"},
 							{IP: "4.3.2.1"},
 							{IP: "4.3.2.2"},
 							{IP: "4.3.2.3"},
 							{IP: "4.3.2.4"},
 						},
-						Ports: []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+						Ports: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 					}},
 				}},
 			},
-			expectUpdate: &api.Endpoints{
-				ObjectMeta: om("foo"),
-				Subsets: []api.EndpointSubset{{
-					Addresses: []api.EndpointAddress{
+			expectUpdate: &corev1.Endpoints{
+				ObjectMeta: om("foo", true),
+				Subsets: []corev1.EndpointSubset{{
+					Addresses: []corev1.EndpointAddress{
 						{IP: "1.2.3.4"},
 						{IP: "4.3.2.2"},
 						{IP: "4.3.2.3"},
 						{IP: "4.3.2.4"},
 					},
-					Ports: []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+					Ports: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 				}},
 			},
 		},
@@ -133,33 +140,33 @@ func TestReconcileEndpoints(t *testing.T) {
 			testName:          "existing endpoints satisfy but too many + extra masters + delete first",
 			serviceName:       "foo",
 			ip:                "4.3.2.4",
-			endpointPorts:     []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			endpointPorts:     []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 			additionalMasters: 3,
-			endpoints: &api.EndpointsList{
-				Items: []api.Endpoints{{
-					ObjectMeta: om("foo"),
-					Subsets: []api.EndpointSubset{{
-						Addresses: []api.EndpointAddress{
+			endpoints: &corev1.EndpointsList{
+				Items: []corev1.Endpoints{{
+					ObjectMeta: om("foo", true),
+					Subsets: []corev1.EndpointSubset{{
+						Addresses: []corev1.EndpointAddress{
 							{IP: "1.2.3.4"},
 							{IP: "4.3.2.1"},
 							{IP: "4.3.2.2"},
 							{IP: "4.3.2.3"},
 							{IP: "4.3.2.4"},
 						},
-						Ports: []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+						Ports: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 					}},
 				}},
 			},
-			expectUpdate: &api.Endpoints{
-				ObjectMeta: om("foo"),
-				Subsets: []api.EndpointSubset{{
-					Addresses: []api.EndpointAddress{
+			expectUpdate: &corev1.Endpoints{
+				ObjectMeta: om("foo", true),
+				Subsets: []corev1.EndpointSubset{{
+					Addresses: []corev1.EndpointAddress{
 						{IP: "4.3.2.1"},
 						{IP: "4.3.2.2"},
 						{IP: "4.3.2.3"},
 						{IP: "4.3.2.4"},
 					},
-					Ports: []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+					Ports: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 				}},
 			},
 		},
@@ -167,17 +174,17 @@ func TestReconcileEndpoints(t *testing.T) {
 			testName:          "existing endpoints satisfy and endpoint addresses length less than master count",
 			serviceName:       "foo",
 			ip:                "4.3.2.2",
-			endpointPorts:     []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			endpointPorts:     []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 			additionalMasters: 3,
-			endpoints: &api.EndpointsList{
-				Items: []api.Endpoints{{
-					ObjectMeta: om("foo"),
-					Subsets: []api.EndpointSubset{{
-						Addresses: []api.EndpointAddress{
+			endpoints: &corev1.EndpointsList{
+				Items: []corev1.Endpoints{{
+					ObjectMeta: om("foo", true),
+					Subsets: []corev1.EndpointSubset{{
+						Addresses: []corev1.EndpointAddress{
 							{IP: "4.3.2.1"},
 							{IP: "4.3.2.2"},
 						},
-						Ports: []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+						Ports: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 					}},
 				}},
 			},
@@ -187,27 +194,27 @@ func TestReconcileEndpoints(t *testing.T) {
 			testName:          "existing endpoints current IP missing and address length less than master count",
 			serviceName:       "foo",
 			ip:                "4.3.2.2",
-			endpointPorts:     []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			endpointPorts:     []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 			additionalMasters: 3,
-			endpoints: &api.EndpointsList{
-				Items: []api.Endpoints{{
-					ObjectMeta: om("foo"),
-					Subsets: []api.EndpointSubset{{
-						Addresses: []api.EndpointAddress{
+			endpoints: &corev1.EndpointsList{
+				Items: []corev1.Endpoints{{
+					ObjectMeta: om("foo", true),
+					Subsets: []corev1.EndpointSubset{{
+						Addresses: []corev1.EndpointAddress{
 							{IP: "4.3.2.1"},
 						},
-						Ports: []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+						Ports: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 					}},
 				}},
 			},
-			expectUpdate: &api.Endpoints{
-				ObjectMeta: om("foo"),
-				Subsets: []api.EndpointSubset{{
-					Addresses: []api.EndpointAddress{
+			expectUpdate: &corev1.Endpoints{
+				ObjectMeta: om("foo", true),
+				Subsets: []corev1.EndpointSubset{{
+					Addresses: []corev1.EndpointAddress{
 						{IP: "4.3.2.1"},
 						{IP: "4.3.2.2"},
 					},
-					Ports: []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+					Ports: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 				}},
 			},
 		},
@@ -215,21 +222,21 @@ func TestReconcileEndpoints(t *testing.T) {
 			testName:      "existing endpoints wrong name",
 			serviceName:   "foo",
 			ip:            "1.2.3.4",
-			endpointPorts: []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
-			endpoints: &api.EndpointsList{
-				Items: []api.Endpoints{{
-					ObjectMeta: om("bar"),
-					Subsets: []api.EndpointSubset{{
-						Addresses: []api.EndpointAddress{{IP: "1.2.3.4"}},
-						Ports:     []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			endpointPorts: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			endpoints: &corev1.EndpointsList{
+				Items: []corev1.Endpoints{{
+					ObjectMeta: om("bar", true),
+					Subsets: []corev1.EndpointSubset{{
+						Addresses: []corev1.EndpointAddress{{IP: "1.2.3.4"}},
+						Ports:     []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 					}},
 				}},
 			},
-			expectCreate: &api.Endpoints{
-				ObjectMeta: om("foo"),
-				Subsets: []api.EndpointSubset{{
-					Addresses: []api.EndpointAddress{{IP: "1.2.3.4"}},
-					Ports:     []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			expectCreate: &corev1.Endpoints{
+				ObjectMeta: om("foo", true),
+				Subsets: []corev1.EndpointSubset{{
+					Addresses: []corev1.EndpointAddress{{IP: "1.2.3.4"}},
+					Ports:     []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 				}},
 			},
 		},
@@ -237,21 +244,21 @@ func TestReconcileEndpoints(t *testing.T) {
 			testName:      "existing endpoints wrong IP",
 			serviceName:   "foo",
 			ip:            "1.2.3.4",
-			endpointPorts: []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
-			endpoints: &api.EndpointsList{
-				Items: []api.Endpoints{{
-					ObjectMeta: om("foo"),
-					Subsets: []api.EndpointSubset{{
-						Addresses: []api.EndpointAddress{{IP: "4.3.2.1"}},
-						Ports:     []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			endpointPorts: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			endpoints: &corev1.EndpointsList{
+				Items: []corev1.Endpoints{{
+					ObjectMeta: om("foo", true),
+					Subsets: []corev1.EndpointSubset{{
+						Addresses: []corev1.EndpointAddress{{IP: "4.3.2.1"}},
+						Ports:     []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 					}},
 				}},
 			},
-			expectUpdate: &api.Endpoints{
-				ObjectMeta: om("foo"),
-				Subsets: []api.EndpointSubset{{
-					Addresses: []api.EndpointAddress{{IP: "1.2.3.4"}},
-					Ports:     []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			expectUpdate: &corev1.Endpoints{
+				ObjectMeta: om("foo", true),
+				Subsets: []corev1.EndpointSubset{{
+					Addresses: []corev1.EndpointAddress{{IP: "1.2.3.4"}},
+					Ports:     []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 				}},
 			},
 		},
@@ -259,21 +266,21 @@ func TestReconcileEndpoints(t *testing.T) {
 			testName:      "existing endpoints wrong port",
 			serviceName:   "foo",
 			ip:            "1.2.3.4",
-			endpointPorts: []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
-			endpoints: &api.EndpointsList{
-				Items: []api.Endpoints{{
-					ObjectMeta: om("foo"),
-					Subsets: []api.EndpointSubset{{
-						Addresses: []api.EndpointAddress{{IP: "1.2.3.4"}},
-						Ports:     []api.EndpointPort{{Name: "foo", Port: 9090, Protocol: "TCP"}},
+			endpointPorts: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			endpoints: &corev1.EndpointsList{
+				Items: []corev1.Endpoints{{
+					ObjectMeta: om("foo", true),
+					Subsets: []corev1.EndpointSubset{{
+						Addresses: []corev1.EndpointAddress{{IP: "1.2.3.4"}},
+						Ports:     []corev1.EndpointPort{{Name: "foo", Port: 9090, Protocol: "TCP"}},
 					}},
 				}},
 			},
-			expectUpdate: &api.Endpoints{
-				ObjectMeta: om("foo"),
-				Subsets: []api.EndpointSubset{{
-					Addresses: []api.EndpointAddress{{IP: "1.2.3.4"}},
-					Ports:     []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			expectUpdate: &corev1.Endpoints{
+				ObjectMeta: om("foo", true),
+				Subsets: []corev1.EndpointSubset{{
+					Addresses: []corev1.EndpointAddress{{IP: "1.2.3.4"}},
+					Ports:     []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 				}},
 			},
 		},
@@ -281,21 +288,21 @@ func TestReconcileEndpoints(t *testing.T) {
 			testName:      "existing endpoints wrong protocol",
 			serviceName:   "foo",
 			ip:            "1.2.3.4",
-			endpointPorts: []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
-			endpoints: &api.EndpointsList{
-				Items: []api.Endpoints{{
-					ObjectMeta: om("foo"),
-					Subsets: []api.EndpointSubset{{
-						Addresses: []api.EndpointAddress{{IP: "1.2.3.4"}},
-						Ports:     []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "UDP"}},
+			endpointPorts: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			endpoints: &corev1.EndpointsList{
+				Items: []corev1.Endpoints{{
+					ObjectMeta: om("foo", true),
+					Subsets: []corev1.EndpointSubset{{
+						Addresses: []corev1.EndpointAddress{{IP: "1.2.3.4"}},
+						Ports:     []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "UDP"}},
 					}},
 				}},
 			},
-			expectUpdate: &api.Endpoints{
-				ObjectMeta: om("foo"),
-				Subsets: []api.EndpointSubset{{
-					Addresses: []api.EndpointAddress{{IP: "1.2.3.4"}},
-					Ports:     []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			expectUpdate: &corev1.Endpoints{
+				ObjectMeta: om("foo", true),
+				Subsets: []corev1.EndpointSubset{{
+					Addresses: []corev1.EndpointAddress{{IP: "1.2.3.4"}},
+					Ports:     []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 				}},
 			},
 		},
@@ -303,21 +310,21 @@ func TestReconcileEndpoints(t *testing.T) {
 			testName:      "existing endpoints wrong port name",
 			serviceName:   "foo",
 			ip:            "1.2.3.4",
-			endpointPorts: []api.EndpointPort{{Name: "baz", Port: 8080, Protocol: "TCP"}},
-			endpoints: &api.EndpointsList{
-				Items: []api.Endpoints{{
-					ObjectMeta: om("foo"),
-					Subsets: []api.EndpointSubset{{
-						Addresses: []api.EndpointAddress{{IP: "1.2.3.4"}},
-						Ports:     []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			endpointPorts: []corev1.EndpointPort{{Name: "baz", Port: 8080, Protocol: "TCP"}},
+			endpoints: &corev1.EndpointsList{
+				Items: []corev1.Endpoints{{
+					ObjectMeta: om("foo", true),
+					Subsets: []corev1.EndpointSubset{{
+						Addresses: []corev1.EndpointAddress{{IP: "1.2.3.4"}},
+						Ports:     []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 					}},
 				}},
 			},
-			expectUpdate: &api.Endpoints{
-				ObjectMeta: om("foo"),
-				Subsets: []api.EndpointSubset{{
-					Addresses: []api.EndpointAddress{{IP: "1.2.3.4"}},
-					Ports:     []api.EndpointPort{{Name: "baz", Port: 8080, Protocol: "TCP"}},
+			expectUpdate: &corev1.Endpoints{
+				ObjectMeta: om("foo", true),
+				Subsets: []corev1.EndpointSubset{{
+					Addresses: []corev1.EndpointAddress{{IP: "1.2.3.4"}},
+					Ports:     []corev1.EndpointPort{{Name: "baz", Port: 8080, Protocol: "TCP"}},
 				}},
 			},
 		},
@@ -325,17 +332,17 @@ func TestReconcileEndpoints(t *testing.T) {
 			testName:    "existing endpoints extra service ports satisfy",
 			serviceName: "foo",
 			ip:          "1.2.3.4",
-			endpointPorts: []api.EndpointPort{
+			endpointPorts: []corev1.EndpointPort{
 				{Name: "foo", Port: 8080, Protocol: "TCP"},
 				{Name: "bar", Port: 1000, Protocol: "TCP"},
 				{Name: "baz", Port: 1010, Protocol: "TCP"},
 			},
-			endpoints: &api.EndpointsList{
-				Items: []api.Endpoints{{
-					ObjectMeta: om("foo"),
-					Subsets: []api.EndpointSubset{{
-						Addresses: []api.EndpointAddress{{IP: "1.2.3.4"}},
-						Ports: []api.EndpointPort{
+			endpoints: &corev1.EndpointsList{
+				Items: []corev1.Endpoints{{
+					ObjectMeta: om("foo", true),
+					Subsets: []corev1.EndpointSubset{{
+						Addresses: []corev1.EndpointAddress{{IP: "1.2.3.4"}},
+						Ports: []corev1.EndpointPort{
 							{Name: "foo", Port: 8080, Protocol: "TCP"},
 							{Name: "bar", Port: 1000, Protocol: "TCP"},
 							{Name: "baz", Port: 1010, Protocol: "TCP"},
@@ -348,37 +355,52 @@ func TestReconcileEndpoints(t *testing.T) {
 			testName:    "existing endpoints extra service ports missing port",
 			serviceName: "foo",
 			ip:          "1.2.3.4",
-			endpointPorts: []api.EndpointPort{
+			endpointPorts: []corev1.EndpointPort{
 				{Name: "foo", Port: 8080, Protocol: "TCP"},
 				{Name: "bar", Port: 1000, Protocol: "TCP"},
 			},
-			endpoints: &api.EndpointsList{
-				Items: []api.Endpoints{{
-					ObjectMeta: om("foo"),
-					Subsets: []api.EndpointSubset{{
-						Addresses: []api.EndpointAddress{{IP: "1.2.3.4"}},
-						Ports:     []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			endpoints: &corev1.EndpointsList{
+				Items: []corev1.Endpoints{{
+					ObjectMeta: om("foo", true),
+					Subsets: []corev1.EndpointSubset{{
+						Addresses: []corev1.EndpointAddress{{IP: "1.2.3.4"}},
+						Ports:     []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 					}},
 				}},
 			},
-			expectUpdate: &api.Endpoints{
-				ObjectMeta: om("foo"),
-				Subsets: []api.EndpointSubset{{
-					Addresses: []api.EndpointAddress{{IP: "1.2.3.4"}},
-					Ports: []api.EndpointPort{
+			expectUpdate: &corev1.Endpoints{
+				ObjectMeta: om("foo", true),
+				Subsets: []corev1.EndpointSubset{{
+					Addresses: []corev1.EndpointAddress{{IP: "1.2.3.4"}},
+					Ports: []corev1.EndpointPort{
 						{Name: "foo", Port: 8080, Protocol: "TCP"},
 						{Name: "bar", Port: 1000, Protocol: "TCP"},
 					},
 				}},
 			},
 		},
+		{
+			testName:      "no existing sctp endpoints",
+			serviceName:   "boo",
+			ip:            "1.2.3.4",
+			endpointPorts: []corev1.EndpointPort{{Name: "boo", Port: 7777, Protocol: "SCTP"}},
+			endpoints:     nil,
+			expectCreate: &corev1.Endpoints{
+				ObjectMeta: om("boo", true),
+				Subsets: []corev1.EndpointSubset{{
+					Addresses: []corev1.EndpointAddress{{IP: "1.2.3.4"}},
+					Ports:     []corev1.EndpointPort{{Name: "boo", Port: 7777, Protocol: "SCTP"}},
+				}},
+			},
+		},
 	}
-	for _, test := range reconcile_tests {
+	for _, test := range reconcileTests {
 		fakeClient := fake.NewSimpleClientset()
 		if test.endpoints != nil {
 			fakeClient = fake.NewSimpleClientset(test.endpoints)
 		}
-		reconciler := reconcilers.NewMasterCountEndpointReconciler(test.additionalMasters+1, fakeClient.Core())
+		epAdapter := reconcilers.NewEndpointsAdapter(fakeClient.CoreV1(), nil)
+		reconciler := reconcilers.NewMasterCountEndpointReconciler(test.additionalMasters+1, epAdapter)
 		err := reconciler.ReconcileEndpoints(test.serviceName, net.ParseIP(test.ip), test.endpointPorts, true)
 		if err != nil {
 			t.Errorf("case %q: unexpected error: %v", test.testName, err)
@@ -422,30 +444,30 @@ func TestReconcileEndpoints(t *testing.T) {
 
 	}
 
-	non_reconcile_tests := []struct {
+	nonReconcileTests := []struct {
 		testName          string
 		serviceName       string
 		ip                string
-		endpointPorts     []api.EndpointPort
+		endpointPorts     []corev1.EndpointPort
 		additionalMasters int
-		endpoints         *api.EndpointsList
-		expectUpdate      *api.Endpoints // nil means none expected
-		expectCreate      *api.Endpoints // nil means none expected
+		endpoints         *corev1.EndpointsList
+		expectUpdate      *corev1.Endpoints // nil means none expected
+		expectCreate      *corev1.Endpoints // nil means none expected
 	}{
 		{
 			testName:    "existing endpoints extra service ports missing port no update",
 			serviceName: "foo",
 			ip:          "1.2.3.4",
-			endpointPorts: []api.EndpointPort{
+			endpointPorts: []corev1.EndpointPort{
 				{Name: "foo", Port: 8080, Protocol: "TCP"},
 				{Name: "bar", Port: 1000, Protocol: "TCP"},
 			},
-			endpoints: &api.EndpointsList{
-				Items: []api.Endpoints{{
-					ObjectMeta: om("foo"),
-					Subsets: []api.EndpointSubset{{
-						Addresses: []api.EndpointAddress{{IP: "1.2.3.4"}},
-						Ports:     []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			endpoints: &corev1.EndpointsList{
+				Items: []corev1.Endpoints{{
+					ObjectMeta: om("foo", true),
+					Subsets: []corev1.EndpointSubset{{
+						Addresses: []corev1.EndpointAddress{{IP: "1.2.3.4"}},
+						Ports:     []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 					}},
 				}},
 			},
@@ -455,24 +477,24 @@ func TestReconcileEndpoints(t *testing.T) {
 			testName:    "existing endpoints extra service ports, wrong ports, wrong IP",
 			serviceName: "foo",
 			ip:          "1.2.3.4",
-			endpointPorts: []api.EndpointPort{
+			endpointPorts: []corev1.EndpointPort{
 				{Name: "foo", Port: 8080, Protocol: "TCP"},
 				{Name: "bar", Port: 1000, Protocol: "TCP"},
 			},
-			endpoints: &api.EndpointsList{
-				Items: []api.Endpoints{{
-					ObjectMeta: om("foo"),
-					Subsets: []api.EndpointSubset{{
-						Addresses: []api.EndpointAddress{{IP: "4.3.2.1"}},
-						Ports:     []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			endpoints: &corev1.EndpointsList{
+				Items: []corev1.Endpoints{{
+					ObjectMeta: om("foo", true),
+					Subsets: []corev1.EndpointSubset{{
+						Addresses: []corev1.EndpointAddress{{IP: "4.3.2.1"}},
+						Ports:     []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 					}},
 				}},
 			},
-			expectUpdate: &api.Endpoints{
-				ObjectMeta: om("foo"),
-				Subsets: []api.EndpointSubset{{
-					Addresses: []api.EndpointAddress{{IP: "1.2.3.4"}},
-					Ports:     []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			expectUpdate: &corev1.Endpoints{
+				ObjectMeta: om("foo", true),
+				Subsets: []corev1.EndpointSubset{{
+					Addresses: []corev1.EndpointAddress{{IP: "1.2.3.4"}},
+					Ports:     []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 				}},
 			},
 		},
@@ -480,23 +502,24 @@ func TestReconcileEndpoints(t *testing.T) {
 			testName:      "no existing endpoints",
 			serviceName:   "foo",
 			ip:            "1.2.3.4",
-			endpointPorts: []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			endpointPorts: []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 			endpoints:     nil,
-			expectCreate: &api.Endpoints{
-				ObjectMeta: om("foo"),
-				Subsets: []api.EndpointSubset{{
-					Addresses: []api.EndpointAddress{{IP: "1.2.3.4"}},
-					Ports:     []api.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
+			expectCreate: &corev1.Endpoints{
+				ObjectMeta: om("foo", true),
+				Subsets: []corev1.EndpointSubset{{
+					Addresses: []corev1.EndpointAddress{{IP: "1.2.3.4"}},
+					Ports:     []corev1.EndpointPort{{Name: "foo", Port: 8080, Protocol: "TCP"}},
 				}},
 			},
 		},
 	}
-	for _, test := range non_reconcile_tests {
+	for _, test := range nonReconcileTests {
 		fakeClient := fake.NewSimpleClientset()
 		if test.endpoints != nil {
 			fakeClient = fake.NewSimpleClientset(test.endpoints)
 		}
-		reconciler := reconcilers.NewMasterCountEndpointReconciler(test.additionalMasters+1, fakeClient.Core())
+		epAdapter := reconcilers.NewEndpointsAdapter(fakeClient.CoreV1(), nil)
+		reconciler := reconcilers.NewMasterCountEndpointReconciler(test.additionalMasters+1, epAdapter)
 		err := reconciler.ReconcileEndpoints(test.serviceName, net.ParseIP(test.ip), test.endpointPorts, false)
 		if err != nil {
 			t.Errorf("case %q: unexpected error: %v", test.testName, err)
@@ -542,44 +565,70 @@ func TestReconcileEndpoints(t *testing.T) {
 
 }
 
+func TestEmptySubsets(t *testing.T) {
+	ns := metav1.NamespaceDefault
+	om := func(name string) metav1.ObjectMeta {
+		return metav1.ObjectMeta{Namespace: ns, Name: name}
+	}
+	endpoints := &corev1.EndpointsList{
+		Items: []corev1.Endpoints{{
+			ObjectMeta: om("foo"),
+			Subsets:    nil,
+		}},
+	}
+	fakeClient := fake.NewSimpleClientset()
+	if endpoints != nil {
+		fakeClient = fake.NewSimpleClientset(endpoints)
+	}
+	epAdapter := reconcilers.NewEndpointsAdapter(fakeClient.CoreV1(), nil)
+	reconciler := reconcilers.NewMasterCountEndpointReconciler(1, epAdapter)
+	endpointPorts := []corev1.EndpointPort{
+		{Name: "foo", Port: 8080, Protocol: "TCP"},
+	}
+	err := reconciler.RemoveEndpoints("foo", net.ParseIP("1.2.3.4"), endpointPorts)
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
 func TestCreateOrUpdateMasterService(t *testing.T) {
 	ns := metav1.NamespaceDefault
 	om := func(name string) metav1.ObjectMeta {
 		return metav1.ObjectMeta{Namespace: ns, Name: name}
 	}
 
-	create_tests := []struct {
+	createTests := []struct {
 		testName     string
 		serviceName  string
-		servicePorts []api.ServicePort
-		serviceType  api.ServiceType
-		expectCreate *api.Service // nil means none expected
+		servicePorts []corev1.ServicePort
+		serviceType  corev1.ServiceType
+		expectCreate *corev1.Service // nil means none expected
 	}{
 		{
 			testName:    "service does not exist",
 			serviceName: "foo",
-			servicePorts: []api.ServicePort{
+			servicePorts: []corev1.ServicePort{
 				{Name: "foo", Port: 8080, Protocol: "TCP", TargetPort: intstr.FromInt(8080)},
 			},
-			serviceType: api.ServiceTypeClusterIP,
-			expectCreate: &api.Service{
+			serviceType: corev1.ServiceTypeClusterIP,
+			expectCreate: &corev1.Service{
 				ObjectMeta: om("foo"),
-				Spec: api.ServiceSpec{
-					Ports: []api.ServicePort{
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
 						{Name: "foo", Port: 8080, Protocol: "TCP", TargetPort: intstr.FromInt(8080)},
 					},
 					Selector:        nil,
 					ClusterIP:       "1.2.3.4",
-					SessionAffinity: api.ServiceAffinityClientIP,
-					Type:            api.ServiceTypeClusterIP,
+					SessionAffinity: corev1.ServiceAffinityNone,
+					Type:            corev1.ServiceTypeClusterIP,
 				},
 			},
 		},
 	}
-	for _, test := range create_tests {
+	for _, test := range createTests {
 		master := Controller{}
 		fakeClient := fake.NewSimpleClientset()
-		master.ServiceClient = fakeClient.Core()
+		master.ServiceClient = fakeClient.CoreV1()
 		master.CreateOrUpdateMasterServiceIfNeeded(test.serviceName, net.ParseIP("1.2.3.4"), test.servicePorts, test.serviceType, false)
 		creates := []core.CreateAction{}
 		for _, action := range fakeClient.Actions() {
@@ -592,7 +641,7 @@ func TestCreateOrUpdateMasterService(t *testing.T) {
 				t.Errorf("case %q: unexpected creations: %v", test.testName, creates)
 			} else {
 				obj := creates[0].GetObject()
-				if e, a := test.expectCreate.Spec, obj.(*api.Service).Spec; !reflect.DeepEqual(e, a) {
+				if e, a := test.expectCreate.Spec, obj.(*corev1.Service).Spec; !reflect.DeepEqual(e, a) {
 					t.Errorf("case %q: expected create:\n%#v\ngot:\n%#v\n", test.testName, e, a)
 				}
 			}
@@ -602,266 +651,266 @@ func TestCreateOrUpdateMasterService(t *testing.T) {
 		}
 	}
 
-	reconcile_tests := []struct {
+	reconcileTests := []struct {
 		testName     string
 		serviceName  string
-		servicePorts []api.ServicePort
-		serviceType  api.ServiceType
-		service      *api.Service
-		expectUpdate *api.Service // nil means none expected
+		servicePorts []corev1.ServicePort
+		serviceType  corev1.ServiceType
+		service      *corev1.Service
+		expectUpdate *corev1.Service // nil means none expected
 	}{
 		{
 			testName:    "service definition wrong port",
 			serviceName: "foo",
-			servicePorts: []api.ServicePort{
+			servicePorts: []corev1.ServicePort{
 				{Name: "foo", Port: 8080, Protocol: "TCP", TargetPort: intstr.FromInt(8080)},
 			},
-			serviceType: api.ServiceTypeClusterIP,
-			service: &api.Service{
+			serviceType: corev1.ServiceTypeClusterIP,
+			service: &corev1.Service{
 				ObjectMeta: om("foo"),
-				Spec: api.ServiceSpec{
-					Ports: []api.ServicePort{
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
 						{Name: "foo", Port: 8000, Protocol: "TCP", TargetPort: intstr.FromInt(8080)},
 					},
 					Selector:        nil,
 					ClusterIP:       "1.2.3.4",
-					SessionAffinity: api.ServiceAffinityClientIP,
-					Type:            api.ServiceTypeClusterIP,
+					SessionAffinity: corev1.ServiceAffinityNone,
+					Type:            corev1.ServiceTypeClusterIP,
 				},
 			},
-			expectUpdate: &api.Service{
+			expectUpdate: &corev1.Service{
 				ObjectMeta: om("foo"),
-				Spec: api.ServiceSpec{
-					Ports: []api.ServicePort{
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
 						{Name: "foo", Port: 8080, Protocol: "TCP", TargetPort: intstr.FromInt(8080)},
 					},
 					Selector:        nil,
 					ClusterIP:       "1.2.3.4",
-					SessionAffinity: api.ServiceAffinityClientIP,
-					Type:            api.ServiceTypeClusterIP,
+					SessionAffinity: corev1.ServiceAffinityNone,
+					Type:            corev1.ServiceTypeClusterIP,
 				},
 			},
 		},
 		{
 			testName:    "service definition missing port",
 			serviceName: "foo",
-			servicePorts: []api.ServicePort{
+			servicePorts: []corev1.ServicePort{
 				{Name: "foo", Port: 8080, Protocol: "TCP", TargetPort: intstr.FromInt(8080)},
 				{Name: "baz", Port: 1000, Protocol: "TCP", TargetPort: intstr.FromInt(1000)},
 			},
-			serviceType: api.ServiceTypeClusterIP,
-			service: &api.Service{
+			serviceType: corev1.ServiceTypeClusterIP,
+			service: &corev1.Service{
 				ObjectMeta: om("foo"),
-				Spec: api.ServiceSpec{
-					Ports: []api.ServicePort{
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
 						{Name: "foo", Port: 8080, Protocol: "TCP", TargetPort: intstr.FromInt(8080)},
 					},
 					Selector:        nil,
 					ClusterIP:       "1.2.3.4",
-					SessionAffinity: api.ServiceAffinityClientIP,
-					Type:            api.ServiceTypeClusterIP,
+					SessionAffinity: corev1.ServiceAffinityNone,
+					Type:            corev1.ServiceTypeClusterIP,
 				},
 			},
-			expectUpdate: &api.Service{
+			expectUpdate: &corev1.Service{
 				ObjectMeta: om("foo"),
-				Spec: api.ServiceSpec{
-					Ports: []api.ServicePort{
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
 						{Name: "foo", Port: 8080, Protocol: "TCP", TargetPort: intstr.FromInt(8080)},
 						{Name: "baz", Port: 1000, Protocol: "TCP", TargetPort: intstr.FromInt(1000)},
 					},
 					Selector:        nil,
 					ClusterIP:       "1.2.3.4",
-					SessionAffinity: api.ServiceAffinityClientIP,
-					Type:            api.ServiceTypeClusterIP,
+					SessionAffinity: corev1.ServiceAffinityNone,
+					Type:            corev1.ServiceTypeClusterIP,
 				},
 			},
 		},
 		{
 			testName:    "service definition incorrect port",
 			serviceName: "foo",
-			servicePorts: []api.ServicePort{
+			servicePorts: []corev1.ServicePort{
 				{Name: "foo", Port: 8080, Protocol: "TCP", TargetPort: intstr.FromInt(8080)},
 			},
-			serviceType: api.ServiceTypeClusterIP,
-			service: &api.Service{
+			serviceType: corev1.ServiceTypeClusterIP,
+			service: &corev1.Service{
 				ObjectMeta: om("foo"),
-				Spec: api.ServiceSpec{
-					Ports: []api.ServicePort{
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
 						{Name: "bar", Port: 1000, Protocol: "UDP", TargetPort: intstr.FromInt(1000)},
 					},
 					Selector:        nil,
 					ClusterIP:       "1.2.3.4",
-					SessionAffinity: api.ServiceAffinityClientIP,
-					Type:            api.ServiceTypeClusterIP,
+					SessionAffinity: corev1.ServiceAffinityNone,
+					Type:            corev1.ServiceTypeClusterIP,
 				},
 			},
-			expectUpdate: &api.Service{
+			expectUpdate: &corev1.Service{
 				ObjectMeta: om("foo"),
-				Spec: api.ServiceSpec{
-					Ports: []api.ServicePort{
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
 						{Name: "foo", Port: 8080, Protocol: "TCP", TargetPort: intstr.FromInt(8080)},
 					},
 					Selector:        nil,
 					ClusterIP:       "1.2.3.4",
-					SessionAffinity: api.ServiceAffinityClientIP,
-					Type:            api.ServiceTypeClusterIP,
+					SessionAffinity: corev1.ServiceAffinityNone,
+					Type:            corev1.ServiceTypeClusterIP,
 				},
 			},
 		},
 		{
 			testName:    "service definition incorrect port name",
 			serviceName: "foo",
-			servicePorts: []api.ServicePort{
+			servicePorts: []corev1.ServicePort{
 				{Name: "foo", Port: 8080, Protocol: "TCP", TargetPort: intstr.FromInt(8080)},
 			},
-			serviceType: api.ServiceTypeClusterIP,
-			service: &api.Service{
+			serviceType: corev1.ServiceTypeClusterIP,
+			service: &corev1.Service{
 				ObjectMeta: om("foo"),
-				Spec: api.ServiceSpec{
-					Ports: []api.ServicePort{
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
 						{Name: "foo", Port: 1000, Protocol: "UDP", TargetPort: intstr.FromInt(1000)},
 					},
 					Selector:        nil,
 					ClusterIP:       "1.2.3.4",
-					SessionAffinity: api.ServiceAffinityClientIP,
-					Type:            api.ServiceTypeClusterIP,
+					SessionAffinity: corev1.ServiceAffinityNone,
+					Type:            corev1.ServiceTypeClusterIP,
 				},
 			},
-			expectUpdate: &api.Service{
+			expectUpdate: &corev1.Service{
 				ObjectMeta: om("foo"),
-				Spec: api.ServiceSpec{
-					Ports: []api.ServicePort{
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
 						{Name: "foo", Port: 8080, Protocol: "TCP", TargetPort: intstr.FromInt(8080)},
 					},
 					Selector:        nil,
 					ClusterIP:       "1.2.3.4",
-					SessionAffinity: api.ServiceAffinityClientIP,
-					Type:            api.ServiceTypeClusterIP,
+					SessionAffinity: corev1.ServiceAffinityNone,
+					Type:            corev1.ServiceTypeClusterIP,
 				},
 			},
 		},
 		{
 			testName:    "service definition incorrect target port",
 			serviceName: "foo",
-			servicePorts: []api.ServicePort{
+			servicePorts: []corev1.ServicePort{
 				{Name: "foo", Port: 8080, Protocol: "TCP", TargetPort: intstr.FromInt(8080)},
 			},
-			serviceType: api.ServiceTypeClusterIP,
-			service: &api.Service{
+			serviceType: corev1.ServiceTypeClusterIP,
+			service: &corev1.Service{
 				ObjectMeta: om("foo"),
-				Spec: api.ServiceSpec{
-					Ports: []api.ServicePort{
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
 						{Name: "foo", Port: 8080, Protocol: "TCP", TargetPort: intstr.FromInt(1000)},
 					},
 					Selector:        nil,
 					ClusterIP:       "1.2.3.4",
-					SessionAffinity: api.ServiceAffinityClientIP,
-					Type:            api.ServiceTypeClusterIP,
+					SessionAffinity: corev1.ServiceAffinityNone,
+					Type:            corev1.ServiceTypeClusterIP,
 				},
 			},
-			expectUpdate: &api.Service{
+			expectUpdate: &corev1.Service{
 				ObjectMeta: om("foo"),
-				Spec: api.ServiceSpec{
-					Ports: []api.ServicePort{
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
 						{Name: "foo", Port: 8080, Protocol: "TCP", TargetPort: intstr.FromInt(8080)},
 					},
 					Selector:        nil,
 					ClusterIP:       "1.2.3.4",
-					SessionAffinity: api.ServiceAffinityClientIP,
-					Type:            api.ServiceTypeClusterIP,
+					SessionAffinity: corev1.ServiceAffinityNone,
+					Type:            corev1.ServiceTypeClusterIP,
 				},
 			},
 		},
 		{
 			testName:    "service definition incorrect protocol",
 			serviceName: "foo",
-			servicePorts: []api.ServicePort{
+			servicePorts: []corev1.ServicePort{
 				{Name: "foo", Port: 8080, Protocol: "TCP", TargetPort: intstr.FromInt(8080)},
 			},
-			serviceType: api.ServiceTypeClusterIP,
-			service: &api.Service{
+			serviceType: corev1.ServiceTypeClusterIP,
+			service: &corev1.Service{
 				ObjectMeta: om("foo"),
-				Spec: api.ServiceSpec{
-					Ports: []api.ServicePort{
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
 						{Name: "foo", Port: 8080, Protocol: "UDP", TargetPort: intstr.FromInt(8080)},
 					},
 					Selector:        nil,
 					ClusterIP:       "1.2.3.4",
-					SessionAffinity: api.ServiceAffinityClientIP,
-					Type:            api.ServiceTypeClusterIP,
+					SessionAffinity: corev1.ServiceAffinityNone,
+					Type:            corev1.ServiceTypeClusterIP,
 				},
 			},
-			expectUpdate: &api.Service{
+			expectUpdate: &corev1.Service{
 				ObjectMeta: om("foo"),
-				Spec: api.ServiceSpec{
-					Ports: []api.ServicePort{
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
 						{Name: "foo", Port: 8080, Protocol: "TCP", TargetPort: intstr.FromInt(8080)},
 					},
 					Selector:        nil,
 					ClusterIP:       "1.2.3.4",
-					SessionAffinity: api.ServiceAffinityClientIP,
-					Type:            api.ServiceTypeClusterIP,
+					SessionAffinity: corev1.ServiceAffinityNone,
+					Type:            corev1.ServiceTypeClusterIP,
 				},
 			},
 		},
 		{
 			testName:    "service definition has incorrect type",
 			serviceName: "foo",
-			servicePorts: []api.ServicePort{
+			servicePorts: []corev1.ServicePort{
 				{Name: "foo", Port: 8080, Protocol: "TCP", TargetPort: intstr.FromInt(8080)},
 			},
-			serviceType: api.ServiceTypeClusterIP,
-			service: &api.Service{
+			serviceType: corev1.ServiceTypeClusterIP,
+			service: &corev1.Service{
 				ObjectMeta: om("foo"),
-				Spec: api.ServiceSpec{
-					Ports: []api.ServicePort{
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
 						{Name: "foo", Port: 8080, Protocol: "TCP", TargetPort: intstr.FromInt(8080)},
 					},
 					Selector:        nil,
 					ClusterIP:       "1.2.3.4",
-					SessionAffinity: api.ServiceAffinityClientIP,
-					Type:            api.ServiceTypeNodePort,
+					SessionAffinity: corev1.ServiceAffinityNone,
+					Type:            corev1.ServiceTypeNodePort,
 				},
 			},
-			expectUpdate: &api.Service{
+			expectUpdate: &corev1.Service{
 				ObjectMeta: om("foo"),
-				Spec: api.ServiceSpec{
-					Ports: []api.ServicePort{
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
 						{Name: "foo", Port: 8080, Protocol: "TCP", TargetPort: intstr.FromInt(8080)},
 					},
 					Selector:        nil,
 					ClusterIP:       "1.2.3.4",
-					SessionAffinity: api.ServiceAffinityClientIP,
-					Type:            api.ServiceTypeClusterIP,
+					SessionAffinity: corev1.ServiceAffinityNone,
+					Type:            corev1.ServiceTypeClusterIP,
 				},
 			},
 		},
 		{
 			testName:    "service definition satisfies",
 			serviceName: "foo",
-			servicePorts: []api.ServicePort{
+			servicePorts: []corev1.ServicePort{
 				{Name: "foo", Port: 8080, Protocol: "TCP", TargetPort: intstr.FromInt(8080)},
 			},
-			serviceType: api.ServiceTypeClusterIP,
-			service: &api.Service{
+			serviceType: corev1.ServiceTypeClusterIP,
+			service: &corev1.Service{
 				ObjectMeta: om("foo"),
-				Spec: api.ServiceSpec{
-					Ports: []api.ServicePort{
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
 						{Name: "foo", Port: 8080, Protocol: "TCP", TargetPort: intstr.FromInt(8080)},
 					},
 					Selector:        nil,
 					ClusterIP:       "1.2.3.4",
-					SessionAffinity: api.ServiceAffinityClientIP,
-					Type:            api.ServiceTypeClusterIP,
+					SessionAffinity: corev1.ServiceAffinityNone,
+					Type:            corev1.ServiceTypeClusterIP,
 				},
 			},
 			expectUpdate: nil,
 		},
 	}
-	for _, test := range reconcile_tests {
+	for _, test := range reconcileTests {
 		master := Controller{}
 		fakeClient := fake.NewSimpleClientset(test.service)
-		master.ServiceClient = fakeClient.Core()
+		master.ServiceClient = fakeClient.CoreV1()
 		err := master.CreateOrUpdateMasterServiceIfNeeded(test.serviceName, net.ParseIP("1.2.3.4"), test.servicePorts, test.serviceType, true)
 		if err != nil {
 			t.Errorf("case %q: unexpected error: %v", test.testName, err)
@@ -877,7 +926,7 @@ func TestCreateOrUpdateMasterService(t *testing.T) {
 				t.Errorf("case %q: unexpected updates: %v", test.testName, updates)
 			} else {
 				obj := updates[0].GetObject()
-				if e, a := test.expectUpdate.Spec, obj.(*api.Service).Spec; !reflect.DeepEqual(e, a) {
+				if e, a := test.expectUpdate.Spec, obj.(*corev1.Service).Spec; !reflect.DeepEqual(e, a) {
 					t.Errorf("case %q: expected update:\n%#v\ngot:\n%#v\n", test.testName, e, a)
 				}
 			}
@@ -887,40 +936,40 @@ func TestCreateOrUpdateMasterService(t *testing.T) {
 		}
 	}
 
-	non_reconcile_tests := []struct {
+	nonReconcileTests := []struct {
 		testName     string
 		serviceName  string
-		servicePorts []api.ServicePort
-		serviceType  api.ServiceType
-		service      *api.Service
-		expectUpdate *api.Service // nil means none expected
+		servicePorts []corev1.ServicePort
+		serviceType  corev1.ServiceType
+		service      *corev1.Service
+		expectUpdate *corev1.Service // nil means none expected
 	}{
 		{
 			testName:    "service definition wrong port, no expected update",
 			serviceName: "foo",
-			servicePorts: []api.ServicePort{
+			servicePorts: []corev1.ServicePort{
 				{Name: "foo", Port: 8080, Protocol: "TCP", TargetPort: intstr.FromInt(8080)},
 			},
-			serviceType: api.ServiceTypeClusterIP,
-			service: &api.Service{
+			serviceType: corev1.ServiceTypeClusterIP,
+			service: &corev1.Service{
 				ObjectMeta: om("foo"),
-				Spec: api.ServiceSpec{
-					Ports: []api.ServicePort{
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
 						{Name: "foo", Port: 1000, Protocol: "TCP", TargetPort: intstr.FromInt(1000)},
 					},
 					Selector:        nil,
 					ClusterIP:       "1.2.3.4",
-					SessionAffinity: api.ServiceAffinityClientIP,
-					Type:            api.ServiceTypeClusterIP,
+					SessionAffinity: corev1.ServiceAffinityNone,
+					Type:            corev1.ServiceTypeClusterIP,
 				},
 			},
 			expectUpdate: nil,
 		},
 	}
-	for _, test := range non_reconcile_tests {
+	for _, test := range nonReconcileTests {
 		master := Controller{}
 		fakeClient := fake.NewSimpleClientset(test.service)
-		master.ServiceClient = fakeClient.Core()
+		master.ServiceClient = fakeClient.CoreV1()
 		err := master.CreateOrUpdateMasterServiceIfNeeded(test.serviceName, net.ParseIP("1.2.3.4"), test.servicePorts, test.serviceType, false)
 		if err != nil {
 			t.Errorf("case %q: unexpected error: %v", test.testName, err)
@@ -936,7 +985,7 @@ func TestCreateOrUpdateMasterService(t *testing.T) {
 				t.Errorf("case %q: unexpected updates: %v", test.testName, updates)
 			} else {
 				obj := updates[0].GetObject()
-				if e, a := test.expectUpdate.Spec, obj.(*api.Service).Spec; !reflect.DeepEqual(e, a) {
+				if e, a := test.expectUpdate.Spec, obj.(*corev1.Service).Spec; !reflect.DeepEqual(e, a) {
 					t.Errorf("case %q: expected update:\n%#v\ngot:\n%#v\n", test.testName, e, a)
 				}
 			}

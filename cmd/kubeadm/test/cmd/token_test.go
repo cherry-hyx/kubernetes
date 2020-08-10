@@ -17,9 +17,6 @@ limitations under the License.
 package kubeadm
 
 import (
-	"flag"
-	"os"
-	"path/filepath"
 	"regexp"
 	"testing"
 )
@@ -28,15 +25,9 @@ const (
 	TokenExpectedRegex = "^\\S{6}\\.\\S{16}\n$"
 )
 
-var kubeadmPath = flag.String("kubeadm-path", filepath.Join(os.Getenv("KUBE_ROOT"), "cluster/kubeadm.sh"), "Location of kubeadm")
-var kubeadmCmdSkip = flag.Bool("kubeadm-cmd-skip", false, "Skip kubeadm cmd tests")
-
 func TestCmdTokenGenerate(t *testing.T) {
-	if *kubeadmCmdSkip {
-		t.Log("kubeadm cmd tests being skipped")
-		t.Skip()
-	}
-	stdout, _, err := RunCmd(*kubeadmPath, "token", "generate")
+	kubeadmPath := getKubeadmPath()
+	stdout, _, _, err := RunCmd(kubeadmPath, "token", "generate")
 	if err != nil {
 		t.Fatalf("'kubeadm token generate' exited uncleanly: %v", err)
 	}
@@ -60,41 +51,36 @@ func TestCmdTokenGenerateTypoError(t *testing.T) {
 		with a non-zero status code after showing the command's usage, so that
 		the usage itself isn't captured as a token without the user noticing.
 	*/
-	if *kubeadmCmdSkip {
-		t.Log("kubeadm cmd tests being skipped")
-		t.Skip()
-	}
-
-	_, _, err := RunCmd(*kubeadmPath, "token", "genorate") // subtle typo
+	kubeadmPath := getKubeadmPath()
+	_, _, _, err := RunCmd(kubeadmPath, "token", "genorate") // subtle typo
 	if err == nil {
 		t.Error("'kubeadm token genorate' (a deliberate typo) exited without an error when we expected non-zero exit status")
 	}
 }
 func TestCmdTokenDelete(t *testing.T) {
-	if *kubeadmCmdSkip {
-		t.Log("kubeadm cmd tests being skipped")
-		t.Skip()
-	}
-
 	var tests = []struct {
+		name     string
 		args     string
 		expected bool
 	}{
-		{"", false},       // no token provided
-		{"foobar", false}, // invalid token
+		{"no token provided", "", false},
+		{"invalid token", "foobar", false},
 	}
 
+	kubeadmPath := getKubeadmPath()
 	for _, rt := range tests {
-		_, _, actual := RunCmd(*kubeadmPath, "token", "delete", rt.args)
-		if (actual == nil) != rt.expected {
-			t.Errorf(
-				"failed CmdTokenDelete running 'kubeadm token %s' with an error: %v\n\texpected: %t\n\t  actual: %t",
-				rt.args,
-				actual,
-				rt.expected,
-				(actual == nil),
-			)
-		}
-		kubeadmReset()
+		t.Run(rt.name, func(t *testing.T) {
+			_, _, _, actual := RunCmd(kubeadmPath, "token", "delete", rt.args)
+			if (actual == nil) != rt.expected {
+				t.Errorf(
+					"failed CmdTokenDelete running 'kubeadm token %s' with an error: %v\n\texpected: %t\n\t  actual: %t",
+					rt.args,
+					actual,
+					rt.expected,
+					(actual == nil),
+				)
+			}
+			kubeadmReset()
+		})
 	}
 }

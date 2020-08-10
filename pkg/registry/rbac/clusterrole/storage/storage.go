@@ -20,7 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apiserver/pkg/registry/generic"
 	genericregistry "k8s.io/apiserver/pkg/registry/generic/registry"
-	"k8s.io/kubernetes/pkg/api"
+	"k8s.io/apiserver/pkg/registry/rest"
 	"k8s.io/kubernetes/pkg/apis/rbac"
 	"k8s.io/kubernetes/pkg/registry/rbac/clusterrole"
 )
@@ -31,9 +31,8 @@ type REST struct {
 }
 
 // NewREST returns a RESTStorage object that will work against ClusterRole objects.
-func NewREST(optsGetter generic.RESTOptionsGetter) *REST {
+func NewREST(optsGetter generic.RESTOptionsGetter) (*REST, error) {
 	store := &genericregistry.Store{
-		Copier:                   api.Scheme,
 		NewFunc:                  func() runtime.Object { return &rbac.ClusterRole{} },
 		NewListFunc:              func() runtime.Object { return &rbac.ClusterRoleList{} },
 		DefaultQualifiedResource: rbac.Resource("clusterroles"),
@@ -41,11 +40,14 @@ func NewREST(optsGetter generic.RESTOptionsGetter) *REST {
 		CreateStrategy: clusterrole.Strategy,
 		UpdateStrategy: clusterrole.Strategy,
 		DeleteStrategy: clusterrole.Strategy,
+
+		// TODO: define table converter that exposes more than name/creation timestamp?
+		TableConvertor: rest.NewDefaultTableConvertor(rbac.Resource("clusterroles")),
 	}
 	options := &generic.StoreOptions{RESTOptions: optsGetter}
 	if err := store.CompleteWithOptions(options); err != nil {
-		panic(err) // TODO: Propagate error up
+		return nil, err
 	}
 
-	return &REST{store}
+	return &REST{store}, nil
 }

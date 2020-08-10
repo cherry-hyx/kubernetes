@@ -23,15 +23,16 @@ import (
 	"io"
 	"strings"
 
+	"github.com/pkg/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	clientset "k8s.io/client-go/kubernetes"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
-	clientsetscheme "k8s.io/client-go/kubernetes/scheme"
 	core "k8s.io/client-go/testing"
+	kubeadmutil "k8s.io/kubernetes/cmd/kubeadm/app/util"
 )
 
-// DryRunGetter is an interface that must be supplied to the NewDryRunClient function in order to contstruct a fully functional fake dryrun clientset
+// DryRunGetter is an interface that must be supplied to the NewDryRunClient function in order to construct a fully functional fake dryrun clientset
 type DryRunGetter interface {
 	HandleGetAction(core.GetAction) (bool, runtime.Object, error)
 	HandleListAction(core.ListAction) (bool, runtime.Object, error)
@@ -42,14 +43,7 @@ type MarshalFunc func(runtime.Object, schema.GroupVersion) ([]byte, error)
 
 // DefaultMarshalFunc is the default MarshalFunc used; uses YAML to print objects to the user
 func DefaultMarshalFunc(obj runtime.Object, gv schema.GroupVersion) ([]byte, error) {
-	mediaType := "application/yaml"
-	info, ok := runtime.SerializerInfoForMediaType(clientsetscheme.Codecs.SupportedMediaTypes(), mediaType)
-	if !ok {
-		return []byte{}, fmt.Errorf("unsupported media type %q", mediaType)
-	}
-
-	encoder := clientsetscheme.Codecs.EncoderForVersion(info.Serializer, gv)
-	return runtime.Encode(encoder, obj)
+	return kubeadmutil.MarshalToYaml(obj, gv)
 }
 
 // DryRunClientOptions specifies options to pass to NewDryRunClientWithOpts in order to get a dryrun clientset
@@ -60,6 +54,18 @@ type DryRunClientOptions struct {
 	AppendReactors  []core.Reactor
 	MarshalFunc     MarshalFunc
 	PrintGETAndLIST bool
+}
+
+// GetDefaultDryRunClientOptions returns the default DryRunClientOptions values
+func GetDefaultDryRunClientOptions(drg DryRunGetter, w io.Writer) DryRunClientOptions {
+	return DryRunClientOptions{
+		Writer:          w,
+		Getter:          drg,
+		PrependReactors: []core.Reactor{},
+		AppendReactors:  []core.Reactor{},
+		MarshalFunc:     DefaultMarshalFunc,
+		PrintGETAndLIST: false,
+	}
 }
 
 // actionWithName is the generic interface for an action that has a name associated with it
@@ -78,24 +84,17 @@ type actionWithObject interface {
 
 // NewDryRunClient is a wrapper for NewDryRunClientWithOpts using some default values
 func NewDryRunClient(drg DryRunGetter, w io.Writer) clientset.Interface {
-	return NewDryRunClientWithOpts(DryRunClientOptions{
-		Writer:          w,
-		Getter:          drg,
-		PrependReactors: []core.Reactor{},
-		AppendReactors:  []core.Reactor{},
-		MarshalFunc:     DefaultMarshalFunc,
-		PrintGETAndLIST: false,
-	})
+	return NewDryRunClientWithOpts(GetDefaultDryRunClientOptions(drg, w))
 }
 
 // NewDryRunClientWithOpts returns a clientset.Interface that can be used normally for talking to the Kubernetes API.
 // This client doesn't apply changes to the backend. The client gets GET/LIST values from the DryRunGetter implementation.
 // This client logs all I/O to the writer w in YAML format
 func NewDryRunClientWithOpts(opts DryRunClientOptions) clientset.Interface {
-	// Build a chain of reactors to act like a normal clientset; but log everything's that happening and don't change any state
+	// Build a chain of reactors to act like a normal clientset; but log everything that is happening and don't change any state
 	client := fakeclientset.NewSimpleClientset()
 
-	// Build the chain of reactors. Order matters; first item here will be invoked first on match, then the second one will be evaluted, etc.
+	// Build the chain of reactors. Order matters; first item here will be invoked first on match, then the second one will be evaluated, etc.
 	defaultReactorChain := []core.Reactor{
 		// Log everything that happens. Default the object if it's about to be created/updated so that the logged object is representative.
 		&core.SimpleReactor{
@@ -116,7 +115,7 @@ func NewDryRunClientWithOpts(opts DryRunClientOptions) clientset.Interface {
 				getAction, ok := action.(core.GetAction)
 				if !ok {
 					// something's wrong, we can't handle this event
-					return true, nil, fmt.Errorf("can't cast get reactor event action object to GetAction interface")
+					return true, nil, errors.New("can't cast get reactor event action object to GetAction interface")
 				}
 				handled, obj, err := opts.Getter.HandleGetAction(getAction)
 
@@ -141,7 +140,7 @@ func NewDryRunClientWithOpts(opts DryRunClientOptions) clientset.Interface {
 				listAction, ok := action.(core.ListAction)
 				if !ok {
 					// something's wrong, we can't handle this event
-					return true, nil, fmt.Errorf("can't cast list reactor event action object to ListAction interface")
+					return true, nil, errors.New("can't cast list reactor event action object to ListAction interface")
 				}
 				handled, objs, err := opts.Getter.HandleListAction(listAction)
 
@@ -230,7 +229,7 @@ func logDryRunAction(action core.Action, w io.Writer, marshalFunc MarshalFunc) {
 
 	patchAction, ok := action.(core.PatchAction)
 	if ok {
-		// Replace all occurences of \" with a simple " when printing
+		// Replace all occurrences of \" with a simple " when printing
 		fmt.Fprintf(w, "[dryrun] Attached patch:\n\t%s\n", strings.Replace(string(patchAction.GetPatch()), `\"`, `"`, -1))
 	}
 }

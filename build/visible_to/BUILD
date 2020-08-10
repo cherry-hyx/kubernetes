@@ -35,39 +35,14 @@ package_group(
 )
 
 package_group(
-    name = "COMMON_release",
-    packages = [
-        "//build",
-        "//build/debs",
-        "//build/rpms",
-    ],
-)
-
-package_group(
     name = "COMMON_testing",
     packages = [
         "//hack",
         "//hack/lib",
         "//hack/make-rules",
-        "//test/e2e",
-        "//test/e2e/framework",
-        "//test/e2e/kubectl",
-        "//test/e2e/workload",
-        "//test/integration/etcd",
-        "//test/integration/framework",
-        "//test/integration/kubectl",
-    ],
-)
-
-package_group(
-    name = "FEDERATION_BAD",
-    packages = [
-        "//federation/cmd/genfeddocs",
-        "//federation/cmd/kubefed/app",
-        "//federation/pkg/kubefed",
-        "//federation/pkg/kubefed/init",
-        "//federation/pkg/kubefed/testing",
-        "//federation/pkg/kubefed/util",
+        "//test/cmd",
+        "//test/e2e/...",
+        "//test/integration/...",
     ],
 )
 
@@ -100,46 +75,29 @@ package_group(
 )
 
 package_group(
-    name = "pkg_kubectl_CONSUMERS_BAD",
-    includes = [
-        ":FEDERATION_BAD",
-        ":KUBEADM_BAD",
-    ],
-    packages = [
-        "//cmd/clicheck",
-        "//cmd/hyperkube",
-        "//pkg",
-    ],
-)
-
-package_group(
     name = "pkg_kubectl_CONSUMERS",
     includes = [
         ":COMMON_generators",
-        ":pkg_kubectl_CONSUMERS_BAD",
     ],
     packages = [
         "//cmd/kubectl",
         "//cmd/kubectl/app",
         "//pkg/kubectl/cmd",
         "//pkg/kubectl/cmd/auth",
-        "//pkg/kubectl/cmd/config",
-        "//pkg/kubectl/cmd/rollout",
-        "//pkg/kubectl/cmd/set",
-        "//pkg/kubectl/cmd/testing",
-        "//pkg/kubectl/cmd/util",
-        "//pkg/kubectl/cmd/util/editor",
+        "//staging/src/k8s.io/kubectl/pkg/cmd",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/config",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/rollout",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/set",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/testing",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/util",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/util/editor",
     ],
 )
 
 package_group(
     name = "pkg_kubectl_cmd_CONSUMERS_BAD",
-    includes = [
-        ":FEDERATION_BAD",
-    ],
     packages = [
         "//cmd/clicheck",
-        "//cmd/hyperkube",
     ],
 )
 
@@ -154,6 +112,8 @@ package_group(
         "//cmd/kubectl/app",
         "//pkg/kubectl",
         "//pkg/kubectl/cmd",
+        "//staging/src/k8s.io/kubectl/pkg",
+        "//staging/src/k8s.io/kubectl/pkg/cmd",
     ],
 )
 
@@ -161,7 +121,8 @@ package_group(
     name = "pkg_kubectl_cmd_auth_CONSUMERS",
     packages = [
         "//pkg/kubectl/cmd",
-        "//pkg/kubectl/cmd/rollout",
+        "//staging/src/k8s.io/kubectl/pkg/cmd",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/rollout",
     ],
 )
 
@@ -169,6 +130,24 @@ package_group(
     name = "pkg_kubectl_cmd_config_CONSUMERS",
     packages = [
         "//pkg/kubectl/cmd",
+        "//staging/src/k8s.io/kubectl/pkg/cmd",
+    ],
+)
+
+package_group(
+    name = "pkg_kubectl_cmd_create_CONSUMERS",
+    packages = [
+        "//pkg/kubectl/cmd",
+        "//staging/src/k8s.io/kubectl/pkg/cmd",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/edit",
+    ],
+)
+
+package_group(
+    name = "pkg_kubectl_cmd_get_CONSUMERS",
+    packages = [
+        "//pkg/kubectl/cmd",
+        "//staging/src/k8s.io/kubectl/pkg/cmd",
     ],
 )
 
@@ -176,6 +155,7 @@ package_group(
     name = "pkg_kubectl_cmd_rollout_CONSUMERS",
     packages = [
         "//pkg/kubectl/cmd",
+        "//staging/src/k8s.io/kubectl/pkg/cmd",
     ],
 )
 
@@ -183,75 +163,108 @@ package_group(
     name = "pkg_kubectl_cmd_set_CONSUMERS",
     packages = [
         "//pkg/kubectl/cmd",
-        "//pkg/kubectl/cmd/rollout",
+        "//staging/src/k8s.io/kubectl/pkg/cmd",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/rollout",
     ],
 )
 
 package_group(
-    name = "pkg_kubectl_cmd_templates_CONSUMERS_BAD",
-    packages = [
-        "//federation/pkg/kubefed/init",
-    ],
-)
-
-package_group(
-    name = "pkg_kubectl_cmd_templates_CONSUMERS",
+    name = "pkg_kubectl_util_templates_CONSUMERS",
     includes = [
         ":COMMON_generators",
         ":COMMON_testing",
-        ":FEDERATION_BAD",
     ],
     packages = [
         "//cmd/kubectl",
         "//cmd/kubectl/app",
         "//pkg/kubectl/cmd",
         "//pkg/kubectl/cmd/auth",
-        "//pkg/kubectl/cmd/config",
-        "//pkg/kubectl/cmd/rollout",
-        "//pkg/kubectl/cmd/set",
-        "//pkg/kubectl/cmd/templates",
-        "//pkg/kubectl/cmd/util",
-        "//pkg/kubectl/cmd/util/sanity",
+        "//pkg/kubectl/cmd/convert",
+        "//pkg/kubectl/cmd/get",
+        "//pkg/kubectl/util",
+        "//staging/src/k8s.io/kubectl/pkg/cmd",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/annotate",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/apiresources",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/apply",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/attach",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/autoscale",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/certificates",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/clusterinfo",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/completion",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/config",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/cp",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/create",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/delete",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/describe",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/diff",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/drain",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/edit",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/exec",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/explain",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/expose",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/help",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/kustomize",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/label",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/logs",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/options",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/patch",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/plugin",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/portforward",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/proxy",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/replace",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/rollout",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/run",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/scale",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/set",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/taint",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/top",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/util",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/util/sanity",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/version",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/wait",
     ],
 )
 
 package_group(
-    name = "pkg_kubectl_cmd_testdata_edit_CONSUMERS",
+    name = "pkg_kubectl_cmd_edit_testdata_CONSUMERS",
     packages = [
-        "//pkg/kubectl/cmd",
-    ],
-)
-
-package_group(
-    name = "pkg_kubectl_cmd_testing_CONSUMERS_BAD",
-    packages = [
-        "//federation/pkg/kubefed",
-        "//federation/pkg/kubefed/init",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/edit",
     ],
 )
 
 package_group(
     name = "pkg_kubectl_cmd_testing_CONSUMERS",
-    includes = [
-        ":pkg_kubectl_cmd_testing_CONSUMERS_BAD",
-    ],
     packages = [
         "//pkg/kubectl/cmd",
         "//pkg/kubectl/cmd/auth",
-        "//pkg/kubectl/cmd/set",
-    ],
-)
-
-package_group(
-    name = "pkg_kubectl_cmd_util_CONSUMERS_BAD",
-    includes = [
-        ":FEDERATION_BAD",
-        ":KUBEADM_BAD",
-    ],
-    packages = [
-        "//cmd/clicheck",
-        "//cmd/hyperkube",
-        "//cmd/kube-proxy/app",
+        "//pkg/kubectl/cmd/convert",
+        "//pkg/kubectl/explain",
+        "//staging/src/k8s.io/kubectl/pkg/cmd",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/annotate",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/apply",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/attach",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/certificates",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/clusterinfo",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/cp",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/create",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/delete",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/describe",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/drain",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/edit",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/exec",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/expose",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/get",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/label",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/logs",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/patch",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/portforward",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/replace",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/rollout",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/run",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/set",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/taint",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/testing",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/top",
     ],
 )
 
@@ -260,19 +273,55 @@ package_group(
     includes = [
         ":COMMON_generators",
         ":COMMON_testing",
-        ":pkg_kubectl_cmd_util_CONSUMERS_BAD",
+        ":KUBEADM_BAD",
     ],
     packages = [
         "//cmd/kubectl",
         "//cmd/kubectl/app",
         "//pkg/kubectl/cmd",
         "//pkg/kubectl/cmd/auth",
-        "//pkg/kubectl/cmd/config",
-        "//pkg/kubectl/cmd/rollout",
-        "//pkg/kubectl/cmd/set",
-        "//pkg/kubectl/cmd/testing",
-        "//pkg/kubectl/cmd/util",
-        "//pkg/kubectl/cmd/util/editor",
+        "//pkg/kubectl/cmd/convert",
+        "//pkg/kubectl/cmd/get",
+        "//staging/src/k8s.io/kubectl/pkg/cmd",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/annotate",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/apiresources",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/apply",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/attach",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/autoscale",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/certificates",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/clusterinfo",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/completion",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/config",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/cp",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/create",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/delete",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/describe",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/diff",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/drain",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/edit",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/exec",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/explain",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/expose",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/help",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/label",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/logs",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/patch",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/plugin",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/portforward",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/proxy",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/replace",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/rollout",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/run",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/scale",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/set",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/taint",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/testing",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/top",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/util",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/util/editor",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/util/sanity",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/version",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/wait",
     ],
 )
 
@@ -280,7 +329,11 @@ package_group(
     name = "pkg_kubectl_cmd_util_editor_CONSUMERS",
     packages = [
         "//pkg/kubectl/cmd",
-        "//pkg/kubectl/cmd/util",
+        "//staging/src/k8s.io/kubectl/pkg/cmd",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/apply",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/create",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/edit",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/util",
     ],
 )
 
@@ -288,7 +341,8 @@ package_group(
     name = "pkg_kubectl_cmd_util_jsonmerge_CONSUMERS",
     packages = [
         "//pkg/kubectl/cmd",
-        "//pkg/kubectl/cmd/util",
+        "//staging/src/k8s.io/kubectl/pkg/cmd",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/util",
     ],
 )
 
@@ -296,18 +350,7 @@ package_group(
     name = "pkg_kubectl_cmd_util_sanity_CONSUMERS",
     packages = [
         "//cmd/clicheck",
-        "//pkg/kubectl/cmd/util",
-    ],
-)
-
-package_group(
-    name = "pkg_kubectl_metricsutil_CONSUMERS_BAD",
-    includes = [
-        ":FEDERATION_BAD",
-    ],
-    packages = [
-        "//cmd/clicheck",
-        "//cmd/hyperkube",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/util",
     ],
 )
 
@@ -315,20 +358,14 @@ package_group(
     name = "pkg_kubectl_metricsutil_CONSUMERS",
     includes = [
         ":COMMON_generators",
-        ":pkg_kubectl_metricsutil_CONSUMERS_BAD",
     ],
     packages = [
         "//cmd/kubectl",
         "//cmd/kubectl/app",
         "//pkg/kubectl",
         "//pkg/kubectl/cmd",
-    ],
-)
-
-package_group(
-    name = "pkg_kubectl_resource_CONSUMERS_BAD",
-    packages = [
-        "//federation/pkg/kubefed",
+        "//staging/src/k8s.io/kubectl/pkg/cmd",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/top",
     ],
 )
 
@@ -337,7 +374,6 @@ package_group(
     includes = [
         ":COMMON_generators",
         ":COMMON_testing",
-        ":pkg_kubectl_resource_CONSUMERS_BAD",
     ],
     packages = [
         "//cmd/kubectl",
@@ -345,12 +381,15 @@ package_group(
         "//pkg/kubectl",
         "//pkg/kubectl/cmd",
         "//pkg/kubectl/cmd/auth",
-        "//pkg/kubectl/cmd/config",
-        "//pkg/kubectl/cmd/rollout",
-        "//pkg/kubectl/cmd/set",
-        "//pkg/kubectl/cmd/testing",
-        "//pkg/kubectl/cmd/util",
-        "//pkg/kubectl/cmd/util/editor",
+        "//pkg/kubectl/cmd/get",
+        "//staging/src/k8s.io/kubectl/pkg/cmd",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/config",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/create",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/rollout",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/set",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/testing",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/util",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/util/editor",
     ],
 )
 
@@ -358,7 +397,6 @@ package_group(
     name = "pkg_kubectl_testing_CONSUMERS",
     packages = [
         "//pkg/kubectl",
-        "//pkg/printers/internalversion",
     ],
 )
 
@@ -366,7 +404,9 @@ package_group(
     name = "pkg_kubectl_util_CONSUMERS",
     packages = [
         "//pkg/kubectl",
-        "//pkg/kubectl/cmd",
+        "//pkg/kubectl/cmd/...",
+        "//pkg/kubectl/generate",
+        "//pkg/kubectl/generate/versioned",
         "//pkg/kubectl/proxy",
     ],
 )
@@ -375,9 +415,27 @@ package_group(
     name = "pkg_kubectl_validation_CONSUMERS",
     packages = [
         "//pkg/kubectl",
-        "//pkg/kubectl/cmd/testing",
-        "//pkg/kubectl/cmd/util",
-        "//pkg/kubectl/resource",
+        "//pkg/kubectl/cmd",
+        "//pkg/kubectl/cmd/convert",
+        "//staging/src/k8s.io/kubectl/pkg/cmd",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/apply",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/replace",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/testing",
+        "//staging/src/k8s.io/kubectl/pkg/cmd/util",
+    ],
+)
+
+package_group(
+    name = "vendor_githubcom_prometheus_CONSUMERS",
+    packages = [
+        "//cluster/images/etcd-version-monitor",
+        "//pkg/scheduler/framework/runtime",
+        "//pkg/volume/util/operationexecutor",
+        "//staging/src/k8s.io/apiserver/pkg/admission/metrics",
+        "//staging/src/k8s.io/component-base/metrics/...",
+        "//test/e2e_node",
+        "//test/integration/apiserver/flowcontrol",
+        "//vendor/...",
     ],
 )
 
@@ -395,5 +453,5 @@ filegroup(
     name = "all-srcs",
     srcs = [":package-srcs"],
     tags = ["automanaged"],
-    visibility = ["//build/visible_to:COMMON_release"],
+    visibility = ["//visibility:public"],
 )

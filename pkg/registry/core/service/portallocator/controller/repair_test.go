@@ -18,13 +18,16 @@ package controller
 
 import (
 	"fmt"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/net"
-	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/fake"
+	"k8s.io/client-go/kubernetes/fake"
+	api "k8s.io/kubernetes/pkg/apis/core"
 	"k8s.io/kubernetes/pkg/registry/core/service/portallocator"
 )
 
@@ -55,7 +58,7 @@ func TestRepair(t *testing.T) {
 		item: &api.RangeAllocation{Range: "100-200"},
 	}
 	pr, _ := net.ParsePortRange(registry.item.Range)
-	r := NewRepair(0, fakeClient.Core(), *pr, registry)
+	r := NewRepair(0, fakeClient.CoreV1(), fakeClient.CoreV1(), *pr, registry)
 
 	if err := r.RunOnce(); err != nil {
 		t.Fatal(err)
@@ -68,7 +71,7 @@ func TestRepair(t *testing.T) {
 		item:      &api.RangeAllocation{Range: "100-200"},
 		updateErr: fmt.Errorf("test error"),
 	}
-	r = NewRepair(0, fakeClient.Core(), *pr, registry)
+	r = NewRepair(0, fakeClient.CoreV1(), fakeClient.CoreV1(), *pr, registry)
 	if err := r.RunOnce(); !strings.Contains(err.Error(), ": test error") {
 		t.Fatal(err)
 	}
@@ -76,11 +79,14 @@ func TestRepair(t *testing.T) {
 
 func TestRepairLeak(t *testing.T) {
 	pr, _ := net.ParsePortRange("100-200")
-	previous := portallocator.NewPortAllocator(*pr)
+	previous, err := portallocator.NewPortAllocator(*pr)
+	if err != nil {
+		t.Fatal(err)
+	}
 	previous.Allocate(111)
 
 	var dst api.RangeAllocation
-	err := previous.Snapshot(&dst)
+	err = previous.Snapshot(&dst)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +102,7 @@ func TestRepairLeak(t *testing.T) {
 		},
 	}
 
-	r := NewRepair(0, fakeClient.Core(), *pr, registry)
+	r := NewRepair(0, fakeClient.CoreV1(), fakeClient.CoreV1(), *pr, registry)
 	// Run through the "leak detection holdoff" loops.
 	for i := 0; i < (numRepairsBeforeLeakCleanup - 1); i++ {
 		if err := r.RunOnce(); err != nil {
@@ -125,43 +131,52 @@ func TestRepairLeak(t *testing.T) {
 
 func TestRepairWithExisting(t *testing.T) {
 	pr, _ := net.ParsePortRange("100-200")
-	previous := portallocator.NewPortAllocator(*pr)
+	previous, err := portallocator.NewPortAllocator(*pr)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	var dst api.RangeAllocation
-	err := previous.Snapshot(&dst)
+	err = previous.Snapshot(&dst)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	fakeClient := fake.NewSimpleClientset(
-		&api.Service{
+		&corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "one", Name: "one"},
-			Spec: api.ServiceSpec{
-				Ports: []api.ServicePort{{NodePort: 111}},
+			Spec: corev1.ServiceSpec{
+				Ports: []corev1.ServicePort{{NodePort: 111}},
 			},
 		},
-		&api.Service{
+		&corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{Namespace: "two", Name: "two"},
-			Spec: api.ServiceSpec{
-				Ports: []api.ServicePort{{NodePort: 122}, {NodePort: 133}},
+			Spec: corev1.ServiceSpec{
+				Ports: []corev1.ServicePort{{NodePort: 122}, {NodePort: 133}},
 			},
 		},
-		&api.Service{ // outside range, will be dropped
+		&corev1.Service{ // outside range, will be dropped
 			ObjectMeta: metav1.ObjectMeta{Namespace: "three", Name: "three"},
-			Spec: api.ServiceSpec{
-				Ports: []api.ServicePort{{NodePort: 201}},
+			Spec: corev1.ServiceSpec{
+				Ports: []corev1.ServicePort{{NodePort: 201}},
 			},
 		},
-		&api.Service{ // empty, ignored
+		&corev1.Service{ // empty, ignored
 			ObjectMeta: metav1.ObjectMeta{Namespace: "four", Name: "four"},
-			Spec: api.ServiceSpec{
-				Ports: []api.ServicePort{{}},
+			Spec: corev1.ServiceSpec{
+				Ports: []corev1.ServicePort{{}},
 			},
 		},
-		&api.Service{ // duplicate, dropped
+		&corev1.Service{ // duplicate, dropped
 			ObjectMeta: metav1.ObjectMeta{Namespace: "five", Name: "five"},
-			Spec: api.ServiceSpec{
-				Ports: []api.ServicePort{{NodePort: 111}},
+			Spec: corev1.ServiceSpec{
+				Ports: []corev1.ServicePort{{NodePort: 111}},
+			},
+		},
+		&corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Namespace: "six", Name: "six"},
+			Spec: corev1.ServiceSpec{
+				HealthCheckNodePort: 144,
 			},
 		},
 	)
@@ -175,7 +190,7 @@ func TestRepairWithExisting(t *testing.T) {
 			Data:  dst.Data,
 		},
 	}
-	r := NewRepair(0, fakeClient.Core(), *pr, registry)
+	r := NewRepair(0, fakeClient.CoreV1(), fakeClient.CoreV1(), *pr, registry)
 	if err := r.RunOnce(); err != nil {
 		t.Fatal(err)
 	}
@@ -183,10 +198,108 @@ func TestRepairWithExisting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !after.Has(111) || !after.Has(122) || !after.Has(133) {
+	if !after.Has(111) || !after.Has(122) || !after.Has(133) || !after.Has(144) {
 		t.Errorf("unexpected portallocator state: %#v", after)
 	}
-	if free := after.Free(); free != 98 {
+	if free := after.Free(); free != 97 {
 		t.Errorf("unexpected portallocator state: %d free", free)
+	}
+}
+
+func TestCollectServiceNodePorts(t *testing.T) {
+	tests := []struct {
+		name        string
+		serviceSpec corev1.ServiceSpec
+		expected    []int
+	}{
+		{
+			name: "no duplicated nodePorts",
+			serviceSpec: corev1.ServiceSpec{
+				Ports: []corev1.ServicePort{
+					{NodePort: 111, Protocol: corev1.ProtocolTCP},
+					{NodePort: 112, Protocol: corev1.ProtocolUDP},
+					{NodePort: 113, Protocol: corev1.ProtocolUDP},
+				},
+			},
+			expected: []int{111, 112, 113},
+		},
+		{
+			name: "duplicated nodePort with TCP protocol",
+			serviceSpec: corev1.ServiceSpec{
+				Ports: []corev1.ServicePort{
+					{NodePort: 111, Protocol: corev1.ProtocolTCP},
+					{NodePort: 111, Protocol: corev1.ProtocolTCP},
+					{NodePort: 112, Protocol: corev1.ProtocolUDP},
+				},
+			},
+			expected: []int{111, 111, 112},
+		},
+		{
+			name: "duplicated nodePort with UDP protocol",
+			serviceSpec: corev1.ServiceSpec{
+				Ports: []corev1.ServicePort{
+					{NodePort: 111, Protocol: corev1.ProtocolUDP},
+					{NodePort: 111, Protocol: corev1.ProtocolUDP},
+					{NodePort: 112, Protocol: corev1.ProtocolTCP},
+				},
+			},
+			expected: []int{111, 111, 112},
+		},
+		{
+			name: "duplicated nodePort with different protocol",
+			serviceSpec: corev1.ServiceSpec{
+				Ports: []corev1.ServicePort{
+					{NodePort: 111, Protocol: corev1.ProtocolTCP},
+					{NodePort: 112, Protocol: corev1.ProtocolTCP},
+					{NodePort: 111, Protocol: corev1.ProtocolUDP},
+				},
+			},
+			expected: []int{111, 112},
+		},
+		{
+			name: "no duplicated port(with health check port)",
+			serviceSpec: corev1.ServiceSpec{
+				Ports: []corev1.ServicePort{
+					{NodePort: 111, Protocol: corev1.ProtocolTCP},
+					{NodePort: 112, Protocol: corev1.ProtocolUDP},
+				},
+				HealthCheckNodePort: 113,
+			},
+			expected: []int{111, 112, 113},
+		},
+		{
+			name: "nodePort has different protocol with duplicated health check port",
+			serviceSpec: corev1.ServiceSpec{
+				Ports: []corev1.ServicePort{
+					{NodePort: 111, Protocol: corev1.ProtocolUDP},
+					{NodePort: 112, Protocol: corev1.ProtocolTCP},
+				},
+				HealthCheckNodePort: 111,
+			},
+			expected: []int{111, 112},
+		},
+		{
+			name: "nodePort has same protocol as duplicated health check port",
+			serviceSpec: corev1.ServiceSpec{
+				Ports: []corev1.ServicePort{
+					{NodePort: 111, Protocol: corev1.ProtocolUDP},
+					{NodePort: 112, Protocol: corev1.ProtocolTCP},
+				},
+				HealthCheckNodePort: 112,
+			},
+			expected: []int{111, 112, 112},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ports := collectServiceNodePorts(&corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{Namespace: "one", Name: "one"},
+				Spec:       tc.serviceSpec,
+			})
+			sort.Ints(ports)
+			if !reflect.DeepEqual(tc.expected, ports) {
+				t.Fatalf("Invalid result\nexpected: %v\ngot: %v", tc.expected, ports)
+			}
+		})
 	}
 }

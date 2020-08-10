@@ -28,6 +28,7 @@ import (
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
+	"k8s.io/kubernetes/pkg/kubelet/util/format"
 )
 
 func TestResolvePortInt(t *testing.T) {
@@ -78,12 +79,14 @@ func TestResolvePortStringUnknown(t *testing.T) {
 type fakeContainerCommandRunner struct {
 	Cmd []string
 	ID  kubecontainer.ContainerID
+	Err error
+	Msg string
 }
 
 func (f *fakeContainerCommandRunner) RunInContainer(id kubecontainer.ContainerID, cmd []string, timeout time.Duration) ([]byte, error) {
 	f.Cmd = cmd
 	f.ID = id
-	return nil, nil
+	return []byte(f.Msg), f.Err
 }
 
 func TestRunHandlerExec(t *testing.T) {
@@ -130,8 +133,8 @@ func (f *fakeHTTP) Get(url string) (*http.Response, error) {
 }
 
 func TestRunHandlerHttp(t *testing.T) {
-	fakeHttp := fakeHTTP{}
-	handlerRunner := NewHandlerRunner(&fakeHttp, &fakeContainerCommandRunner{}, nil)
+	fakeHTTPGetter := fakeHTTP{}
+	handlerRunner := NewHandlerRunner(&fakeHTTPGetter, &fakeContainerCommandRunner{}, nil)
 
 	containerID := kubecontainer.ContainerID{Type: "test", ID: "abc1234"}
 	containerName := "containerFoo"
@@ -157,8 +160,8 @@ func TestRunHandlerHttp(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
-	if fakeHttp.url != "http://foo:8080/bar" {
-		t.Errorf("unexpected url: %s", fakeHttp.url)
+	if fakeHTTPGetter.url != "http://foo:8080/bar" {
+		t.Errorf("unexpected url: %s", fakeHTTPGetter.url)
 	}
 }
 
@@ -185,13 +188,47 @@ func TestRunHandlerNil(t *testing.T) {
 	}
 }
 
+func TestRunHandlerExecFailure(t *testing.T) {
+	expectedErr := fmt.Errorf("invalid command")
+	fakeCommandRunner := fakeContainerCommandRunner{Err: expectedErr, Msg: expectedErr.Error()}
+	handlerRunner := NewHandlerRunner(&fakeHTTP{}, &fakeCommandRunner, nil)
+
+	containerID := kubecontainer.ContainerID{Type: "test", ID: "abc1234"}
+	containerName := "containerFoo"
+	command := []string{"ls", "--a"}
+
+	container := v1.Container{
+		Name: containerName,
+		Lifecycle: &v1.Lifecycle{
+			PostStart: &v1.Handler{
+				Exec: &v1.ExecAction{
+					Command: command,
+				},
+			},
+		},
+	}
+
+	pod := v1.Pod{}
+	pod.ObjectMeta.Name = "podFoo"
+	pod.ObjectMeta.Namespace = "nsFoo"
+	pod.Spec.Containers = []v1.Container{container}
+	expectedErrMsg := fmt.Sprintf("Exec lifecycle hook (%s) for Container %q in Pod %q failed - error: %v, message: %q", command, containerName, format.Pod(&pod), expectedErr, expectedErr.Error())
+	msg, err := handlerRunner.Run(containerID, &pod, &container, container.Lifecycle.PostStart)
+	if err == nil {
+		t.Errorf("expected error: %v", expectedErr)
+	}
+	if msg != expectedErrMsg {
+		t.Errorf("unexpected error message: %q; expected %q", msg, expectedErrMsg)
+	}
+}
+
 func TestRunHandlerHttpFailure(t *testing.T) {
 	expectedErr := fmt.Errorf("fake http error")
 	expectedResp := http.Response{
 		Body: ioutil.NopCloser(strings.NewReader(expectedErr.Error())),
 	}
-	fakeHttp := fakeHTTP{err: expectedErr, resp: &expectedResp}
-	handlerRunner := NewHandlerRunner(&fakeHttp, &fakeContainerCommandRunner{}, nil)
+	fakeHTTPGetter := fakeHTTP{err: expectedErr, resp: &expectedResp}
+	handlerRunner := NewHandlerRunner(&fakeHTTPGetter, &fakeContainerCommandRunner{}, nil)
 	containerName := "containerFoo"
 	containerID := kubecontainer.ContainerID{Type: "test", ID: "abc1234"}
 	container := v1.Container{
@@ -210,14 +247,15 @@ func TestRunHandlerHttpFailure(t *testing.T) {
 	pod.ObjectMeta.Name = "podFoo"
 	pod.ObjectMeta.Namespace = "nsFoo"
 	pod.Spec.Containers = []v1.Container{container}
+	expectedErrMsg := fmt.Sprintf("Http lifecycle hook (%s) for Container %q in Pod %q failed - error: %v, message: %q", "bar", containerName, format.Pod(&pod), expectedErr, expectedErr.Error())
 	msg, err := handlerRunner.Run(containerID, &pod, &container, container.Lifecycle.PostStart)
 	if err == nil {
 		t.Errorf("expected error: %v", expectedErr)
 	}
-	if msg != expectedErr.Error() {
-		t.Errorf("unexpected error message: %q; expected %q", msg, expectedErr)
+	if msg != expectedErrMsg {
+		t.Errorf("unexpected error message: %q; expected %q", msg, expectedErrMsg)
 	}
-	if fakeHttp.url != "http://foo:8080/bar" {
-		t.Errorf("unexpected url: %s", fakeHttp.url)
+	if fakeHTTPGetter.url != "http://foo:8080/bar" {
+		t.Errorf("unexpected url: %s", fakeHTTPGetter.url)
 	}
 }

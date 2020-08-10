@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Copyright 2016 The Kubernetes Authors.
 #
@@ -14,18 +14,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# This script checks whether updating of OpenAPI specification is needed or not.
+# We should run `hack/update-openapi-spec.sh` if OpenAPI specification is out of
+# date.
+# Usage: `hack/verify-openapi-spec.sh`.
+
 set -o errexit
 set -o nounset
 set -o pipefail
 
-KUBE_ROOT=$(dirname "${BASH_SOURCE}")/..
+KUBE_ROOT=$(dirname "${BASH_SOURCE[0]}")/..
 source "${KUBE_ROOT}/hack/lib/init.sh"
 
 kube::golang::setup_env
+kube::etcd::install
 
 make -C "${KUBE_ROOT}" WHAT=cmd/kube-apiserver
-
-apiserver=$(kube::util::find-binary "kube-apiserver")
 
 SPECROOT="${KUBE_ROOT}/api/openapi-spec"
 TMP_SPECROOT="${KUBE_ROOT}/_tmp/openapi-spec"
@@ -33,10 +37,10 @@ _tmp="${KUBE_ROOT}/_tmp"
 
 mkdir -p "${_tmp}"
 cp -a "${SPECROOT}" "${TMP_SPECROOT}"
-trap "cp -a ${TMP_SPECROOT} ${SPECROOT}/..; rm -rf ${_tmp}" EXIT SIGINT
-rm ${SPECROOT}/*
-cp ${TMP_SPECROOT}/BUILD ${SPECROOT}/BUILD 
-cp ${TMP_SPECROOT}/README.md ${SPECROOT}/README.md
+trap 'cp -a ${TMP_SPECROOT} ${SPECROOT}/..; rm -rf ${_tmp}' EXIT SIGINT
+rm "${SPECROOT}"/*
+cp "${TMP_SPECROOT}/BUILD" "${SPECROOT}/BUILD"
+cp "${TMP_SPECROOT}/README.md" "${SPECROOT}/README.md"
 
 "${KUBE_ROOT}/hack/update-openapi-spec.sh"
 echo "diffing ${SPECROOT} against freshly generated openapi spec"
@@ -46,7 +50,7 @@ if [[ $ret -eq 0 ]]
 then
   echo "${SPECROOT} up to date."
 else
-  echo "${SPECROOT} is out of date. Please run hack/update-openapi-spec.sh"
+  echo "${SPECROOT} is out of date. Please run hack/update-openapi-spec.sh" >&2
   exit 1
 fi
 

@@ -7,6 +7,8 @@ go_library(
         "timed_store.go",
         "utils.go",
     ],
+    importmap = "k8s.io/kubernetes/vendor/github.com/google/cadvisor/utils",
+    importpath = "github.com/google/cadvisor/utils",
     visibility = ["//visibility:public"],
 )
 
@@ -23,7 +25,6 @@ filegroup(
         ":package-srcs",
         "//vendor/github.com/google/cadvisor/utils/cloudinfo:all-srcs",
         "//vendor/github.com/google/cadvisor/utils/cpuload:all-srcs",
-        "//vendor/github.com/google/cadvisor/utils/docker:all-srcs",
         "//vendor/github.com/google/cadvisor/utils/oomparser:all-srcs",
         "//vendor/github.com/google/cadvisor/utils/sysfs:all-srcs",
         "//vendor/github.com/google/cadvisor/utils/sysinfo:all-srcs",

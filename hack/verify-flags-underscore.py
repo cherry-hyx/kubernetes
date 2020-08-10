@@ -16,12 +16,10 @@
 
 from __future__ import print_function
 
-import json
-import mmap
+import argparse
 import os
 import re
 import sys
-import argparse
 
 parser = argparse.ArgumentParser()
 parser.add_argument("filenames", help="list of files to check, all files if unspecified", nargs='*')
@@ -37,7 +35,7 @@ def is_binary(pathname):
     try:
         with open(pathname, 'r') as f:
             CHUNKSIZE = 1024
-            while 1:
+            while True:
                 chunk = f.read(CHUNKSIZE)
                 if '\0' in chunk: # found null byte
                     return True

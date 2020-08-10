@@ -23,26 +23,89 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/imdario/mergo"
 	restclient "k8s.io/client-go/rest"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
+
+	"github.com/imdario/mergo"
 )
 
-func TestOldMergoLib(t *testing.T) {
-	type T struct {
-		X string
+func TestMergoSemantics(t *testing.T) {
+	type U struct {
+		A string
+		B int64
 	}
-	dst := T{X: "one"}
-	src := T{X: "two"}
-	mergo.Merge(&dst, &src)
-	if dst.X != "two" {
-		// mergo.Merge changed in an incompatible way with
-		//
-		//   https://github.com/imdario/mergo/commit/d304790b2ed594794496464fadd89d2bb266600a
-		//
-		// We have to stay with the old version which still does eager
-		// copying from src to dst in structs.
-		t.Errorf("mergo.Merge library found with incompatible, new behavior")
+	type T struct {
+		S []string
+		X string
+		Y int64
+		U U
+	}
+	var testDataStruct = []struct {
+		dst      T
+		src      T
+		expected T
+	}{
+		{
+			dst:      T{X: "one"},
+			src:      T{X: "two"},
+			expected: T{X: "two"},
+		},
+		{
+			dst:      T{X: "one", Y: 5, U: U{A: "four", B: 6}},
+			src:      T{X: "two", U: U{A: "three", B: 4}},
+			expected: T{X: "two", Y: 5, U: U{A: "three", B: 4}},
+		},
+		{
+			dst:      T{S: []string{"test3", "test4", "test5"}},
+			src:      T{S: []string{"test1", "test2", "test3"}},
+			expected: T{S: []string{"test1", "test2", "test3"}},
+		},
+	}
+	for _, data := range testDataStruct {
+		err := mergo.MergeWithOverwrite(&data.dst, &data.src)
+		if err != nil {
+			t.Errorf("error while merging: %s", err)
+		}
+		if !reflect.DeepEqual(data.dst, data.expected) {
+			// The mergo library has previously changed in a an incompatible way.
+			// example:
+			//
+			//   https://github.com/imdario/mergo/commit/d304790b2ed594794496464fadd89d2bb266600a
+			//
+			// This test verifies that the semantics of the merge are what we expect.
+			// If they are not, the mergo library may have been updated and broken
+			// unexpectedly.
+			t.Errorf("mergo.MergeWithOverwrite did not provide expected output: %+v doesn't match %+v", data.dst, data.expected)
+		}
+	}
+
+	var testDataMap = []struct {
+		dst      map[string]int
+		src      map[string]int
+		expected map[string]int
+	}{
+		{
+			dst:      map[string]int{"rsc": 6543, "r": 2138, "gri": 1908, "adg": 912, "prt": 22},
+			src:      map[string]int{"rsc": 3711, "r": 2138, "gri": 1908, "adg": 912},
+			expected: map[string]int{"rsc": 3711, "r": 2138, "gri": 1908, "adg": 912, "prt": 22},
+		},
+	}
+	for _, data := range testDataMap {
+		err := mergo.MergeWithOverwrite(&data.dst, &data.src)
+		if err != nil {
+			t.Errorf("error while merging: %s", err)
+		}
+		if !reflect.DeepEqual(data.dst, data.expected) {
+			// The mergo library has previously changed in a an incompatible way.
+			// example:
+			//
+			//   https://github.com/imdario/mergo/commit/d304790b2ed594794496464fadd89d2bb266600a
+			//
+			// This test verifies that the semantics of the merge are what we expect.
+			// If they are not, the mergo library may have been updated and broken
+			// unexpectedly.
+			t.Errorf("mergo.MergeWithOverwrite did not provide expected output: %+v doesn't match %+v", data.dst, data.expected)
+		}
 	}
 }
 
@@ -85,7 +148,7 @@ func TestInsecureOverridesCA(t *testing.T) {
 
 	actualCfg, err := clientBuilder.ClientConfig()
 	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
+		t.Fatalf("Unexpected error: %v", err)
 	}
 
 	matchBoolArg(true, actualCfg.Insecure, t)
@@ -93,8 +156,68 @@ func TestInsecureOverridesCA(t *testing.T) {
 	matchByteArg(nil, actualCfg.TLSClientConfig.CAData, t)
 }
 
+func TestCAOverridesCAData(t *testing.T) {
+	file, err := ioutil.TempFile("", "my.ca")
+	if err != nil {
+		t.Fatalf("could not create tempfile: %v", err)
+	}
+	defer os.Remove(file.Name())
+
+	config := createCAValidTestConfig()
+	clientBuilder := NewNonInteractiveClientConfig(*config, "clean", &ConfigOverrides{
+		ClusterInfo: clientcmdapi.Cluster{
+			CertificateAuthority: file.Name(),
+		},
+	}, nil)
+
+	actualCfg, err := clientBuilder.ClientConfig()
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	matchBoolArg(false, actualCfg.Insecure, t)
+	matchStringArg(file.Name(), actualCfg.TLSClientConfig.CAFile, t)
+	matchByteArg(nil, actualCfg.TLSClientConfig.CAData, t)
+}
+
+func TestTLSServerName(t *testing.T) {
+	config := createValidTestConfig()
+
+	clientBuilder := NewNonInteractiveClientConfig(*config, "clean", &ConfigOverrides{
+		ClusterInfo: clientcmdapi.Cluster{
+			TLSServerName: "overridden-server-name",
+		},
+	}, nil)
+
+	actualCfg, err := clientBuilder.ClientConfig()
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	matchStringArg("overridden-server-name", actualCfg.ServerName, t)
+	matchStringArg("", actualCfg.TLSClientConfig.CAFile, t)
+	matchByteArg(nil, actualCfg.TLSClientConfig.CAData, t)
+}
+
+func TestTLSServerNameClearsWhenServerNameSet(t *testing.T) {
+	config := createValidTestConfig()
+
+	clientBuilder := NewNonInteractiveClientConfig(*config, "clean", &ConfigOverrides{
+		ClusterInfo: clientcmdapi.Cluster{
+			Server: "http://something",
+		},
+	}, nil)
+
+	actualCfg, err := clientBuilder.ClientConfig()
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	matchStringArg("", actualCfg.ServerName, t)
+}
+
 func TestMergeContext(t *testing.T) {
-	const namespace = "overriden-namespace"
+	const namespace = "overridden-namespace"
 
 	config := createValidTestConfig()
 	clientBuilder := NewNonInteractiveClientConfig(*config, "clean", &ConfigOverrides{}, nil)
@@ -126,6 +249,54 @@ func TestMergeContext(t *testing.T) {
 	matchStringArg(namespace, actual, t)
 }
 
+func TestModifyContext(t *testing.T) {
+	expectedCtx := map[string]bool{
+		"updated": true,
+		"clean":   true,
+	}
+
+	tempPath, err := ioutil.TempFile("", "testclientcmd-")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer os.Remove(tempPath.Name())
+
+	pathOptions := NewDefaultPathOptions()
+	config := createValidTestConfig()
+
+	pathOptions.GlobalFile = tempPath.Name()
+
+	// define new context and assign it - our path options config
+	config.Contexts["updated"] = &clientcmdapi.Context{
+		Cluster:  "updated",
+		AuthInfo: "updated",
+	}
+	config.CurrentContext = "updated"
+
+	if err := ModifyConfig(pathOptions, *config, true); err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	startingConfig, err := pathOptions.GetStartingConfig()
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	// make sure the current context was updated
+	matchStringArg("updated", startingConfig.CurrentContext, t)
+
+	// there should now be two contexts
+	if len(startingConfig.Contexts) != len(expectedCtx) {
+		t.Fatalf("unexpected nuber of contexts, expecting %v, but found %v", len(expectedCtx), len(startingConfig.Contexts))
+	}
+
+	for key := range startingConfig.Contexts {
+		if !expectedCtx[key] {
+			t.Fatalf("expected context %q to exist", key)
+		}
+	}
+}
+
 func TestCertificateData(t *testing.T) {
 	caData := []byte("ca-data")
 	certData := []byte("cert-data")
@@ -133,7 +304,7 @@ func TestCertificateData(t *testing.T) {
 
 	config := clientcmdapi.NewConfig()
 	config.Clusters["clean"] = &clientcmdapi.Cluster{
-		Server: "https://localhost:8443",
+		Server:                   "https://localhost:8443",
 		CertificateAuthorityData: caData,
 	}
 	config.AuthInfos["clean"] = &clientcmdapi.AuthInfo{
@@ -159,9 +330,87 @@ func TestCertificateData(t *testing.T) {
 	matchByteArg(keyData, clientConfig.TLSClientConfig.KeyData, t)
 }
 
+func TestProxyURL(t *testing.T) {
+	tests := []struct {
+		desc      string
+		proxyURL  string
+		expectErr bool
+	}{
+		{
+			desc: "no proxy-url",
+		},
+		{
+			desc:     "socks5 proxy-url",
+			proxyURL: "socks5://example.com",
+		},
+		{
+			desc:     "https proxy-url",
+			proxyURL: "https://example.com",
+		},
+		{
+			desc:     "http proxy-url",
+			proxyURL: "http://example.com",
+		},
+		{
+			desc:      "bad scheme proxy-url",
+			proxyURL:  "socks6://example.com",
+			expectErr: true,
+		},
+		{
+			desc:      "no scheme proxy-url",
+			proxyURL:  "example.com",
+			expectErr: true,
+		},
+		{
+			desc:      "not a url proxy-url",
+			proxyURL:  "chewbacca@example.com",
+			expectErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.proxyURL, func(t *testing.T) {
+
+			config := clientcmdapi.NewConfig()
+			config.Clusters["clean"] = &clientcmdapi.Cluster{
+				Server:   "https://localhost:8443",
+				ProxyURL: test.proxyURL,
+			}
+			config.AuthInfos["clean"] = &clientcmdapi.AuthInfo{}
+			config.Contexts["clean"] = &clientcmdapi.Context{
+				Cluster:  "clean",
+				AuthInfo: "clean",
+			}
+			config.CurrentContext = "clean"
+
+			clientBuilder := NewNonInteractiveClientConfig(*config, "clean", &ConfigOverrides{}, nil)
+
+			clientConfig, err := clientBuilder.ClientConfig()
+			if test.expectErr {
+				if err == nil {
+					t.Fatal("Expected error constructing config")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Unexpected error constructing config: %v", err)
+			}
+
+			if test.proxyURL == "" {
+				return
+			}
+			gotURL, err := clientConfig.Proxy(nil)
+			if err != nil {
+				t.Fatalf("Unexpected error from proxier: %v", err)
+			}
+			matchStringArg(test.proxyURL, gotURL.String(), t)
+		})
+	}
+}
+
 func TestBasicAuthData(t *testing.T) {
 	username := "myuser"
-	password := "mypass"
+	password := "mypass" // Fake value for testing.
 
 	config := clientcmdapi.NewConfig()
 	config.Clusters["clean"] = &clientcmdapi.Cluster{
@@ -276,6 +525,7 @@ func TestCreateClean(t *testing.T) {
 	matchStringArg("", clientConfig.APIPath, t)
 	matchBoolArg(config.Clusters["clean"].InsecureSkipTLSVerify, clientConfig.Insecure, t)
 	matchStringArg(config.AuthInfos["clean"].Token, clientConfig.BearerToken, t)
+	matchStringArg(config.Clusters["clean"].TLSServerName, clientConfig.ServerName, t)
 }
 
 func TestCreateCleanWithPrefix(t *testing.T) {
@@ -326,6 +576,7 @@ func TestCreateCleanDefault(t *testing.T) {
 	}
 
 	matchStringArg(config.Clusters["clean"].Server, clientConfig.Host, t)
+	matchStringArg(config.Clusters["clean"].TLSServerName, clientConfig.ServerName, t)
 	matchBoolArg(config.Clusters["clean"].InsecureSkipTLSVerify, clientConfig.Insecure, t)
 	matchStringArg(config.AuthInfos["clean"].Token, clientConfig.BearerToken, t)
 }
@@ -342,12 +593,12 @@ func TestCreateCleanDefaultCluster(t *testing.T) {
 	}
 
 	matchStringArg(config.Clusters["clean"].Server, clientConfig.Host, t)
+	matchStringArg(config.Clusters["clean"].TLSServerName, clientConfig.ServerName, t)
 	matchBoolArg(config.Clusters["clean"].InsecureSkipTLSVerify, clientConfig.Insecure, t)
 	matchStringArg(config.AuthInfos["clean"].Token, clientConfig.BearerToken, t)
 }
 
 func TestCreateMissingContextNoDefault(t *testing.T) {
-	const expectedErrorContains = "Context was not found for specified context"
 	config := createValidTestConfig()
 	clientBuilder := NewNonInteractiveClientConfig(*config, "not-present", &ConfigOverrides{}, nil)
 
@@ -371,6 +622,26 @@ func TestCreateMissingContext(t *testing.T) {
 	if !strings.Contains(err.Error(), expectedErrorContains) {
 		t.Fatalf("Expected error: %v, but got %v", expectedErrorContains, err)
 	}
+}
+
+func TestCreateAuthConfigExecInstallHintCleanup(t *testing.T) {
+	config := createValidTestConfig()
+	clientBuilder := NewNonInteractiveClientConfig(*config, "clean", &ConfigOverrides{
+		AuthInfo: clientcmdapi.AuthInfo{
+			Exec: &clientcmdapi.ExecConfig{
+				APIVersion:  "client.authentication.k8s.io/v1alpha1",
+				Command:     "some-command",
+				InstallHint: "some install hint with \x1b[1mcontrol chars\x1b[0m\nand a newline",
+			},
+		},
+	}, nil)
+	cleanedInstallHint := "some install hint with U+001B[1mcontrol charsU+001B[0m\nand a newline"
+
+	clientConfig, err := clientBuilder.ClientConfig()
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	matchStringArg(cleanedInstallHint, clientConfig.ExecProvider.InstallHint, t)
 }
 
 func TestInClusterClientConfigPrecedence(t *testing.T) {
@@ -438,6 +709,30 @@ func TestInClusterClientConfigPrecedence(t *testing.T) {
 			},
 		},
 		{
+			overrides: &ConfigOverrides{
+				ClusterInfo: clientcmdapi.Cluster{
+					Server:               "https://host-from-overrides.com",
+					CertificateAuthority: "/path/to/ca-from-overrides.crt",
+				},
+				AuthInfo: clientcmdapi.AuthInfo{
+					Token:     "token-from-override",
+					TokenFile: "tokenfile-from-override",
+				},
+			},
+		},
+		{
+			overrides: &ConfigOverrides{
+				ClusterInfo: clientcmdapi.Cluster{
+					Server:               "https://host-from-overrides.com",
+					CertificateAuthority: "/path/to/ca-from-overrides.crt",
+				},
+				AuthInfo: clientcmdapi.AuthInfo{
+					Token:     "",
+					TokenFile: "tokenfile-from-override",
+				},
+			},
+		},
+		{
 			overrides: &ConfigOverrides{},
 		},
 	}
@@ -445,13 +740,15 @@ func TestInClusterClientConfigPrecedence(t *testing.T) {
 	for _, tc := range tt {
 		expectedServer := "https://host-from-cluster.com"
 		expectedToken := "token-from-cluster"
+		expectedTokenFile := "tokenfile-from-cluster"
 		expectedCAFile := "/path/to/ca-from-cluster.crt"
 
 		icc := &inClusterClientConfig{
 			inClusterConfigProvider: func() (*restclient.Config, error) {
 				return &restclient.Config{
-					Host:        expectedServer,
-					BearerToken: expectedToken,
+					Host:            expectedServer,
+					BearerToken:     expectedToken,
+					BearerTokenFile: expectedTokenFile,
 					TLSClientConfig: restclient.TLSClientConfig{
 						CAFile: expectedCAFile,
 					},
@@ -468,8 +765,9 @@ func TestInClusterClientConfigPrecedence(t *testing.T) {
 		if overridenServer := tc.overrides.ClusterInfo.Server; len(overridenServer) > 0 {
 			expectedServer = overridenServer
 		}
-		if overridenToken := tc.overrides.AuthInfo.Token; len(overridenToken) > 0 {
-			expectedToken = overridenToken
+		if len(tc.overrides.AuthInfo.Token) > 0 || len(tc.overrides.AuthInfo.TokenFile) > 0 {
+			expectedToken = tc.overrides.AuthInfo.Token
+			expectedTokenFile = tc.overrides.AuthInfo.TokenFile
 		}
 		if overridenCAFile := tc.overrides.ClusterInfo.CertificateAuthority; len(overridenCAFile) > 0 {
 			expectedCAFile = overridenCAFile
@@ -480,6 +778,9 @@ func TestInClusterClientConfigPrecedence(t *testing.T) {
 		}
 		if clientConfig.BearerToken != expectedToken {
 			t.Errorf("Expected token %v, got %v", expectedToken, clientConfig.BearerToken)
+		}
+		if clientConfig.BearerTokenFile != expectedTokenFile {
+			t.Errorf("Expected tokenfile %v, got %v", expectedTokenFile, clientConfig.BearerTokenFile)
 		}
 		if clientConfig.TLSClientConfig.CAFile != expectedCAFile {
 			t.Errorf("Expected Certificate Authority %v, got %v", expectedCAFile, clientConfig.TLSClientConfig.CAFile)
@@ -525,4 +826,114 @@ func TestNamespaceOverride(t *testing.T) {
 	}
 
 	matchStringArg("foo", ns, t)
+}
+
+func TestAuthConfigMerge(t *testing.T) {
+	content := `
+apiVersion: v1
+clusters:
+- cluster:
+    server: https://localhost:8080
+  name: foo-cluster
+contexts:
+- context:
+    cluster: foo-cluster
+    user: foo-user
+    namespace: bar
+  name: foo-context
+current-context: foo-context
+kind: Config
+users:
+- name: foo-user
+  user:
+    exec:
+      apiVersion: client.authentication.k8s.io/v1alpha1
+      args:
+      - arg-1
+      - arg-2
+      command: foo-command
+`
+	tmpfile, err := ioutil.TempFile("", "kubeconfig")
+	if err != nil {
+		t.Error(err)
+	}
+	defer os.Remove(tmpfile.Name())
+	if err := ioutil.WriteFile(tmpfile.Name(), []byte(content), 0666); err != nil {
+		t.Error(err)
+	}
+	config, err := BuildConfigFromFlags("", tmpfile.Name())
+	if err != nil {
+		t.Error(err)
+	}
+	if !reflect.DeepEqual(config.ExecProvider.Args, []string{"arg-1", "arg-2"}) {
+		t.Errorf("Got args %v when they should be %v\n", config.ExecProvider.Args, []string{"arg-1", "arg-2"})
+	}
+
+}
+
+func TestCleanANSIEscapeCodes(t *testing.T) {
+	tests := []struct {
+		name    string
+		in, out string
+	}{
+		{
+			name: "DenyBoldCharacters",
+			in:   "\x1b[1mbold tuna\x1b[0m, fish, \x1b[1mbold marlin\x1b[0m",
+			out:  "U+001B[1mbold tunaU+001B[0m, fish, U+001B[1mbold marlinU+001B[0m",
+		},
+		{
+			name: "DenyCursorNavigation",
+			in:   "\x1b[2Aup up, \x1b[2Cright right",
+			out:  "U+001B[2Aup up, U+001B[2Cright right",
+		},
+		{
+			name: "DenyClearScreen",
+			in:   "clear: \x1b[2J",
+			out:  "clear: U+001B[2J",
+		},
+		{
+			name: "AllowSpaceCharactersUnchanged",
+			in:   "tuna\nfish\r\nmarlin\t\r\ntuna\vfish\fmarlin",
+		},
+		{
+			name: "AllowLetters",
+			in:   "alpha: \u03b1, beta: \u03b2, gamma: \u03b3",
+		},
+		{
+			name: "AllowMarks",
+			in: "tu\u0301na with a mark over the u, fi\u0302sh with a mark over the i," +
+				" ma\u030Arlin with a mark over the a",
+		},
+		{
+			name: "AllowNumbers",
+			in:   "t1na, f2sh, m3rlin, t12a, f34h, m56lin, t123, f456, m567n",
+		},
+		{
+			name: "AllowPunctuation",
+			in:   "\"here's a sentence; with! some...punctuation ;)\"",
+		},
+		{
+			name: "AllowSymbols",
+			in: "the integral of f(x) from 0 to n approximately equals the sum of f(x)" +
+				" from a = 0 to n, where a and n are natural numbers:" +
+				"\u222b\u2081\u207F f(x) dx \u2248 \u2211\u2090\u208C\u2081\u207F f(x)," +
+				" a \u2208 \u2115, n \u2208 \u2115",
+		},
+		{
+			name: "AllowSepatators",
+			in: "here is a paragraph separator\u2029and here\u2003are\u2003some" +
+				"\u2003em\u2003spaces",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if len(test.out) == 0 {
+				test.out = test.in
+			}
+
+			if actualOut := cleanANSIEscapeCodes(test.in); test.out != actualOut {
+				t.Errorf("expected %q, actual %q", test.out, actualOut)
+			}
+		})
+	}
 }

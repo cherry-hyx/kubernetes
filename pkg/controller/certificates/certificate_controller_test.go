@@ -17,10 +17,11 @@ limitations under the License.
 package certificates
 
 import (
+	"context"
 	"testing"
 	"time"
 
-	certificates "k8s.io/api/certificates/v1beta1"
+	certificates "k8s.io/api/certificates/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
@@ -47,21 +48,19 @@ func TestCertificateController(t *testing.T) {
 			Reason:  "test reason",
 			Message: "test message",
 		})
-		_, err := client.Certificates().CertificateSigningRequests().UpdateApproval(csr)
+		_, err := client.CertificatesV1().CertificateSigningRequests().UpdateApproval(context.TODO(), csr.Name, csr, metav1.UpdateOptions{})
 		if err != nil {
 			return err
 		}
 		return nil
 	}
 
-	controller, err := NewCertificateController(
+	controller := NewCertificateController(
+		"test",
 		client,
-		informerFactory.Certificates().V1beta1().CertificateSigningRequests(),
+		informerFactory.Certificates().V1().CertificateSigningRequests(),
 		handler,
 	)
-	if err != nil {
-		t.Fatalf("error creating controller: %v", err)
-	}
 	controller.csrsSynced = func() bool { return true }
 
 	stopCh := make(chan struct{})

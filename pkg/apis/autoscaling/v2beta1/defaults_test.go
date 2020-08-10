@@ -20,25 +20,29 @@ import (
 	"reflect"
 	"testing"
 
+	"k8s.io/apimachinery/pkg/util/diff"
+
 	autoscalingv2beta1 "k8s.io/api/autoscaling/v2beta1"
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/kubernetes/pkg/api"
-	_ "k8s.io/kubernetes/pkg/api/install"
+	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	"k8s.io/kubernetes/pkg/apis/autoscaling"
 	_ "k8s.io/kubernetes/pkg/apis/autoscaling/install"
 	. "k8s.io/kubernetes/pkg/apis/autoscaling/v2beta1"
+	_ "k8s.io/kubernetes/pkg/apis/core/install"
+	utilpointer "k8s.io/utils/pointer"
 )
 
 func TestSetDefaultHPA(t *testing.T) {
 	utilizationDefaultVal := int32(autoscaling.DefaultCPUUtilization)
-	defaultReplicas := newInt32(1)
+	defaultReplicas := utilpointer.Int32Ptr(1)
 	defaultTemplate := []autoscalingv2beta1.MetricSpec{
 		{
 			Type: autoscalingv2beta1.ResourceMetricSourceType,
 			Resource: &autoscalingv2beta1.ResourceMetricSource{
-				Name: v1.ResourceCPU,
+				Name:                     v1.ResourceCPU,
 				TargetAverageUtilization: &utilizationDefaultVal,
 			},
 		},
@@ -64,13 +68,13 @@ func TestSetDefaultHPA(t *testing.T) {
 		{ // MinReplicas update
 			original: &autoscalingv2beta1.HorizontalPodAutoscaler{
 				Spec: autoscalingv2beta1.HorizontalPodAutoscalerSpec{
-					MinReplicas: newInt32(3),
+					MinReplicas: utilpointer.Int32Ptr(3),
 					Metrics:     defaultTemplate,
 				},
 			},
 			expected: &autoscalingv2beta1.HorizontalPodAutoscaler{
 				Spec: autoscalingv2beta1.HorizontalPodAutoscalerSpec{
-					MinReplicas: newInt32(3),
+					MinReplicas: utilpointer.Int32Ptr(3),
 					Metrics:     defaultTemplate,
 				},
 			},
@@ -104,28 +108,87 @@ func TestSetDefaultHPA(t *testing.T) {
 	}
 }
 
+func TestHorizontalPodAutoscalerAnnotations(t *testing.T) {
+	tests := []struct {
+		hpa  autoscalingv2beta1.HorizontalPodAutoscaler
+		test string
+	}{
+		{
+			hpa: autoscalingv2beta1.HorizontalPodAutoscaler{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						autoscaling.HorizontalPodAutoscalerConditionsAnnotation: "",
+						autoscaling.MetricSpecsAnnotation:                       "",
+						autoscaling.BehaviorSpecsAnnotation:                     "",
+						autoscaling.MetricStatusesAnnotation:                    "",
+					},
+				},
+			},
+			test: "test empty value for Annotations",
+		},
+		{
+			hpa: autoscalingv2beta1.HorizontalPodAutoscaler{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						autoscaling.HorizontalPodAutoscalerConditionsAnnotation: "abc",
+						autoscaling.MetricSpecsAnnotation:                       "abc",
+						autoscaling.BehaviorSpecsAnnotation:                     "abc",
+						autoscaling.MetricStatusesAnnotation:                    "abc",
+					},
+				},
+			},
+			test: "test random value for Annotations",
+		},
+		{
+			hpa: autoscalingv2beta1.HorizontalPodAutoscaler{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						autoscaling.HorizontalPodAutoscalerConditionsAnnotation: "[]",
+						autoscaling.MetricSpecsAnnotation:                       "[]",
+						autoscaling.BehaviorSpecsAnnotation:                     "[]",
+						autoscaling.MetricStatusesAnnotation:                    "[]",
+					},
+				},
+			},
+			test: "test empty array value for Annotations",
+		},
+	}
+
+	for _, test := range tests {
+		hpa := &test.hpa
+		hpaBeforeMuatate := *hpa.DeepCopy()
+		obj := roundTrip(t, runtime.Object(hpa))
+		final_obj, ok := obj.(*autoscalingv2beta1.HorizontalPodAutoscaler)
+		if !ok {
+			t.Fatalf("unexpected object: %v", obj)
+		}
+		if !reflect.DeepEqual(*hpa, hpaBeforeMuatate) {
+			t.Errorf("diff: %v", diff.ObjectDiff(*hpa, hpaBeforeMuatate))
+			t.Errorf("expected: %#v\n actual:   %#v", *hpa, hpaBeforeMuatate)
+		}
+
+		if len(final_obj.ObjectMeta.Annotations) != 0 {
+			t.Fatalf("unexpected annotations: %v", final_obj.ObjectMeta.Annotations)
+		}
+	}
+}
+
 func roundTrip(t *testing.T, obj runtime.Object) runtime.Object {
-	data, err := runtime.Encode(api.Codecs.LegacyCodec(SchemeGroupVersion), obj)
+	data, err := runtime.Encode(legacyscheme.Codecs.LegacyCodec(SchemeGroupVersion), obj)
 	if err != nil {
 		t.Errorf("%v\n %#v", err, obj)
 		return nil
 	}
-	obj2, err := runtime.Decode(api.Codecs.UniversalDecoder(), data)
+	obj2, err := runtime.Decode(legacyscheme.Codecs.UniversalDecoder(), data)
 	if err != nil {
 		t.Errorf("%v\nData: %s\nSource: %#v", err, string(data), obj)
 		return nil
 	}
 	obj3 := reflect.New(reflect.TypeOf(obj).Elem()).Interface().(runtime.Object)
-	err = api.Scheme.Convert(obj2, obj3, nil)
+	err = legacyscheme.Scheme.Convert(obj2, obj3, nil)
 	if err != nil {
 		t.Errorf("%v\nSource: %#v", err, obj2)
 		return nil
 	}
 	return obj3
-}
-
-func newInt32(val int32) *int32 {
-	p := new(int32)
-	*p = val
-	return p
 }

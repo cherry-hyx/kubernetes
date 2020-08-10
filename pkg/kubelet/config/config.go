@@ -21,15 +21,11 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/golang/glog"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/kubernetes/pkg/api"
-	k8s_api_v1 "k8s.io/kubernetes/pkg/api/v1"
-	"k8s.io/kubernetes/pkg/api/validation"
+	"k8s.io/klog/v2"
 	kubecontainer "k8s.io/kubernetes/pkg/kubelet/container"
 	"k8s.io/kubernetes/pkg/kubelet/events"
 	kubetypes "k8s.io/kubernetes/pkg/kubelet/types"
@@ -98,7 +94,7 @@ func (c *PodConfig) SeenAllSources(seenSources sets.String) bool {
 	if c.pods == nil {
 		return false
 	}
-	glog.V(6).Infof("Looking for %v, have seen %v", c.sources.List(), seenSources)
+	klog.V(5).Infof("Looking for %v, have seen %v", c.sources.List(), seenSources)
 	return seenSources.HasAll(c.sources.List()...) && c.pods.seenSources(c.sources.List()...)
 }
 
@@ -258,16 +254,16 @@ func (s *podStorage) merge(source string, change interface{}) (adds, updates, de
 	switch update.Op {
 	case kubetypes.ADD, kubetypes.UPDATE, kubetypes.DELETE:
 		if update.Op == kubetypes.ADD {
-			glog.V(4).Infof("Adding new pods from source %s : %v", source, update.Pods)
+			klog.V(4).Infof("Adding new pods from source %s : %v", source, update.Pods)
 		} else if update.Op == kubetypes.DELETE {
-			glog.V(4).Infof("Graceful deleting pods from source %s : %v", source, update.Pods)
+			klog.V(4).Infof("Graceful deleting pods from source %s : %v", source, update.Pods)
 		} else {
-			glog.V(4).Infof("Updating pods from source %s : %v", source, update.Pods)
+			klog.V(4).Infof("Updating pods from source %s : %v", source, update.Pods)
 		}
 		updatePodsFunc(update.Pods, pods, pods)
 
 	case kubetypes.REMOVE:
-		glog.V(4).Infof("Removing pods from source %s : %v", source, update.Pods)
+		klog.V(4).Infof("Removing pods from source %s : %v", source, update.Pods)
 		for _, value := range update.Pods {
 			if existing, found := pods[value.UID]; found {
 				// this is a delete
@@ -279,7 +275,7 @@ func (s *podStorage) merge(source string, change interface{}) (adds, updates, de
 		}
 
 	case kubetypes.SET:
-		glog.V(4).Infof("Setting pods for source %s", source)
+		klog.V(4).Infof("Setting pods for source %s", source)
 		s.markSourceSet(source)
 		// Clear the old map entries by just creating a new map
 		oldPods := pods
@@ -293,7 +289,7 @@ func (s *podStorage) merge(source string, change interface{}) (adds, updates, de
 		}
 
 	default:
-		glog.Warningf("Received invalid update type: %v", update)
+		klog.Warningf("Received invalid update type: %v", update)
 
 	}
 
@@ -323,34 +319,17 @@ func (s *podStorage) seenSources(sources ...string) bool {
 func filterInvalidPods(pods []*v1.Pod, source string, recorder record.EventRecorder) (filtered []*v1.Pod) {
 	names := sets.String{}
 	for i, pod := range pods {
-		var errlist field.ErrorList
-		// TODO: remove the conversion when validation is performed on versioned objects.
-		internalPod := &api.Pod{}
-		if err := k8s_api_v1.Convert_v1_Pod_To_api_Pod(pod, internalPod, nil); err != nil {
-			glog.Warningf("Pod[%d] (%s) from %s failed to convert to v1, ignoring: %v", i+1, format.Pod(pod), source, err)
-			recorder.Eventf(pod, v1.EventTypeWarning, "FailedConversion", "Error converting pod %s from %s, ignoring: %v", format.Pod(pod), source, err)
+		// Pods from each source are assumed to have passed validation individually.
+		// This function only checks if there is any naming conflict.
+		name := kubecontainer.GetPodFullName(pod)
+		if names.Has(name) {
+			klog.Warningf("Pod[%d] (%s) from %s failed validation due to duplicate pod name %q, ignoring", i+1, format.Pod(pod), source, pod.Name)
+			recorder.Eventf(pod, v1.EventTypeWarning, events.FailedValidation, "Error validating pod %s from %s due to duplicate pod name %q, ignoring", format.Pod(pod), source, pod.Name)
 			continue
-		}
-		if errs := validation.ValidatePod(internalPod); len(errs) != 0 {
-			errlist = append(errlist, errs...)
-			// If validation fails, don't trust it any further -
-			// even Name could be bad.
 		} else {
-			name := kubecontainer.GetPodFullName(pod)
-			if names.Has(name) {
-				// TODO: when validation becomes versioned, this gets a bit
-				// more complicated.
-				errlist = append(errlist, field.Duplicate(field.NewPath("metadata", "name"), pod.Name))
-			} else {
-				names.Insert(name)
-			}
+			names.Insert(name)
 		}
-		if len(errlist) > 0 {
-			err := errlist.ToAggregate()
-			glog.Warningf("Pod[%d] (%s) from %s failed validation, ignoring: %v", i+1, format.Pod(pod), source, err)
-			recorder.Eventf(pod, v1.EventTypeWarning, events.FailedValidation, "Error validating pod %s from %s, ignoring: %v", format.Pod(pod), source, err)
-			continue
-		}
+
 		filtered = append(filtered, pod)
 	}
 	return
@@ -401,7 +380,7 @@ func isAnnotationMapEqual(existingMap, candidateMap map[string]string) bool {
 
 // recordFirstSeenTime records the first seen time of this pod.
 func recordFirstSeenTime(pod *v1.Pod) {
-	glog.V(4).Infof("Receiving a new pod %q", format.Pod(pod))
+	klog.V(4).Infof("Receiving a new pod %q", format.Pod(pod))
 	pod.Annotations[kubetypes.ConfigFirstSeenAnnotationKey] = kubetypes.NewTimestamp().GetString()
 }
 
@@ -491,12 +470,7 @@ func (s *podStorage) MergedState() interface{} {
 	pods := make([]*v1.Pod, 0)
 	for _, sourcePods := range s.pods {
 		for _, podRef := range sourcePods {
-			pod, err := api.Scheme.Copy(podRef)
-			if err != nil {
-				glog.Errorf("unable to copy pod: %v", err)
-				continue
-			}
-			pods = append(pods, pod.(*v1.Pod))
+			pods = append(pods, podRef.DeepCopy())
 		}
 	}
 	return pods
@@ -506,12 +480,7 @@ func copyPods(sourcePods []*v1.Pod) []*v1.Pod {
 	pods := []*v1.Pod{}
 	for _, source := range sourcePods {
 		// Use a deep copy here just in case
-		pod, err := api.Scheme.Copy(source)
-		if err != nil {
-			glog.Errorf("unable to copy pod: %v", err)
-			continue
-		}
-		pods = append(pods, pod.(*v1.Pod))
+		pods = append(pods, source.DeepCopy())
 	}
 	return pods
 }

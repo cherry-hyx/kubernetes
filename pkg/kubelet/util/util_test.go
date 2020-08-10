@@ -1,5 +1,5 @@
 /*
-Copyright 2017 The Kubernetes Authors.
+Copyright 2020 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,43 +22,67 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestParseEndpoint(t *testing.T) {
-	tests := []struct {
-		endpoint         string
-		expectError      bool
-		expectedProtocol string
-		expectedAddr     string
-	}{
-		{
-			endpoint:         "unix:///tmp/s1.sock",
-			expectedProtocol: "unix",
-			expectedAddr:     "/tmp/s1.sock",
-		},
-		{
-			endpoint:         "tcp://localhost:15880",
-			expectedProtocol: "tcp",
-			expectedAddr:     "localhost:15880",
-		},
-		{
-			endpoint:         "tcp1://abc",
-			expectedProtocol: "tcp1",
-			expectError:      true,
-		},
-		{
-			endpoint:    "a b c",
-			expectError: true,
-		},
-	}
+func TestGetNodenameForKernel(t *testing.T) {
+	testcases := []struct {
+		description       string
+		hostname          string
+		hostDomain        string
+		setHostnameAsFQDN bool
+		expectedHostname  string
+		expectError       bool
+	}{{
+		description:       "no hostDomain, setHostnameAsFQDN false",
+		hostname:          "test.pod.hostname",
+		hostDomain:        "",
+		setHostnameAsFQDN: false,
+		expectedHostname:  "test.pod.hostname",
+		expectError:       false,
+	}, {
+		description:       "no hostDomain, setHostnameAsFQDN true",
+		hostname:          "test.pod.hostname",
+		hostDomain:        "",
+		setHostnameAsFQDN: true,
+		expectedHostname:  "test.pod.hostname",
+		expectError:       false,
+	}, {
+		description:       "valid hostDomain, setHostnameAsFQDN false",
+		hostname:          "test.pod.hostname",
+		hostDomain:        "svc.subdomain.local",
+		setHostnameAsFQDN: false,
+		expectedHostname:  "test.pod.hostname",
+		expectError:       false,
+	}, {
+		description:       "valid hostDomain, setHostnameAsFQDN true",
+		hostname:          "test.pod.hostname",
+		hostDomain:        "svc.subdomain.local",
+		setHostnameAsFQDN: true,
+		expectedHostname:  "test.pod.hostname.svc.subdomain.local",
+		expectError:       false,
+	}, {
+		description:       "FQDN is too long, setHostnameAsFQDN false",
+		hostname:          "1234567.1234567",                                         //8*2-1=15 chars
+		hostDomain:        "1234567.1234567.1234567.1234567.1234567.1234567.1234567", //8*7-1=55 chars
+		setHostnameAsFQDN: false,                                                     //FQDN=15 + 1(dot) + 55 = 71 chars
+		expectedHostname:  "1234567.1234567",
+		expectError:       false,
+	}, {
+		description:       "FQDN is too long, setHostnameAsFQDN true",
+		hostname:          "1234567.1234567",                                         //8*2-1=15 chars
+		hostDomain:        "1234567.1234567.1234567.1234567.1234567.1234567.1234567", //8*7-1=55 chars
+		setHostnameAsFQDN: true,                                                      //FQDN=15 + 1(dot) + 55 = 71 chars
+		expectedHostname:  "",
+		expectError:       true,
+	}}
 
-	for _, test := range tests {
-		protocol, addr, err := parseEndpoint(test.endpoint)
-		assert.Equal(t, test.expectedProtocol, protocol)
-		if test.expectError {
-			assert.NotNil(t, err, "Expect error during parsing %q", test.endpoint)
-			continue
+	for _, tc := range testcases {
+		t.Logf("TestCase: %q", tc.description)
+		outputHostname, err := GetNodenameForKernel(tc.hostname, tc.hostDomain, &tc.setHostnameAsFQDN)
+		if tc.expectError {
+			assert.Error(t, err)
+		} else {
+			assert.NoError(t, err)
 		}
-		assert.Nil(t, err, "Expect no error during parsing %q", test.endpoint)
-		assert.Equal(t, test.expectedAddr, addr)
+		assert.Equal(t, tc.expectedHostname, outputHostname)
 	}
 
 }

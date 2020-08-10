@@ -17,6 +17,8 @@ limitations under the License.
 package clientcmd
 
 import (
+	"errors"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"strings"
@@ -62,6 +64,7 @@ func TestConfirmUsableBadInfoButOkConfig(t *testing.T) {
 	okTest.testConfirmUsable("clean", t)
 	badValidation.testConfig(t)
 }
+
 func TestConfirmUsableBadInfoConfig(t *testing.T) {
 	config := clientcmdapi.NewConfig()
 	config.Clusters["missing ca"] = &clientcmdapi.Cluster{
@@ -83,6 +86,7 @@ func TestConfirmUsableBadInfoConfig(t *testing.T) {
 
 	test.testConfirmUsable("first", t)
 }
+
 func TestConfirmUsableEmptyConfig(t *testing.T) {
 	config := clientcmdapi.NewConfig()
 	test := configValidationTest{
@@ -92,6 +96,7 @@ func TestConfirmUsableEmptyConfig(t *testing.T) {
 
 	test.testConfirmUsable("", t)
 }
+
 func TestConfirmUsableMissingConfig(t *testing.T) {
 	config := clientcmdapi.NewConfig()
 	test := configValidationTest{
@@ -101,6 +106,7 @@ func TestConfirmUsableMissingConfig(t *testing.T) {
 
 	test.testConfirmUsable("not-here", t)
 }
+
 func TestValidateEmptyConfig(t *testing.T) {
 	config := clientcmdapi.NewConfig()
 	test := configValidationTest{
@@ -110,6 +116,7 @@ func TestValidateEmptyConfig(t *testing.T) {
 
 	test.testConfig(t)
 }
+
 func TestValidateMissingCurrentContextConfig(t *testing.T) {
 	config := clientcmdapi.NewConfig()
 	config.CurrentContext = "anything"
@@ -120,6 +127,7 @@ func TestValidateMissingCurrentContextConfig(t *testing.T) {
 
 	test.testConfig(t)
 }
+
 func TestIsContextNotFound(t *testing.T) {
 	config := clientcmdapi.NewConfig()
 	config.CurrentContext = "anything"
@@ -172,6 +180,7 @@ func TestValidateMissingReferencesConfig(t *testing.T) {
 	test.testContext("anything", t)
 	test.testConfig(t)
 }
+
 func TestValidateEmptyContext(t *testing.T) {
 	config := clientcmdapi.NewConfig()
 	config.CurrentContext = "anything"
@@ -182,6 +191,19 @@ func TestValidateEmptyContext(t *testing.T) {
 	}
 
 	test.testContext("anything", t)
+	test.testConfig(t)
+}
+
+func TestValidateEmptyContextName(t *testing.T) {
+	config := clientcmdapi.NewConfig()
+	config.CurrentContext = "anything"
+	config.Contexts[""] = &clientcmdapi.Context{Cluster: "missing", AuthInfo: "missing"}
+	test := configValidationTest{
+		config:                 config,
+		expectedErrorSubstring: []string{"empty context name", "is not allowed"},
+	}
+
+	test.testContext("", t)
 	test.testConfig(t)
 }
 
@@ -223,6 +245,7 @@ func TestValidateMissingCAFileClusterInfo(t *testing.T) {
 	test.testCluster("missing ca", t)
 	test.testConfig(t)
 }
+
 func TestValidateCleanClusterInfo(t *testing.T) {
 	config := clientcmdapi.NewConfig()
 	config.Clusters["clean"] = &clientcmdapi.Cluster{
@@ -235,6 +258,7 @@ func TestValidateCleanClusterInfo(t *testing.T) {
 	test.testCluster("clean", t)
 	test.testConfig(t)
 }
+
 func TestValidateCleanWithCAClusterInfo(t *testing.T) {
 	tempFile, _ := ioutil.TempFile("", "")
 	defer os.Remove(tempFile.Name())
@@ -262,6 +286,7 @@ func TestValidateEmptyAuthInfo(t *testing.T) {
 	test.testAuthInfo("error", t)
 	test.testConfig(t)
 }
+
 func TestValidateCertFilesNotFoundAuthInfo(t *testing.T) {
 	config := clientcmdapi.NewConfig()
 	config.AuthInfos["error"] = &clientcmdapi.AuthInfo{
@@ -276,6 +301,7 @@ func TestValidateCertFilesNotFoundAuthInfo(t *testing.T) {
 	test.testAuthInfo("error", t)
 	test.testConfig(t)
 }
+
 func TestValidateCertDataOverridesFiles(t *testing.T) {
 	tempFile, _ := ioutil.TempFile("", "")
 	defer os.Remove(tempFile.Name())
@@ -295,6 +321,7 @@ func TestValidateCertDataOverridesFiles(t *testing.T) {
 	test.testAuthInfo("clean", t)
 	test.testConfig(t)
 }
+
 func TestValidateCleanCertFilesAuthInfo(t *testing.T) {
 	tempFile, _ := ioutil.TempFile("", "")
 	defer os.Remove(tempFile.Name())
@@ -311,6 +338,7 @@ func TestValidateCleanCertFilesAuthInfo(t *testing.T) {
 	test.testAuthInfo("clean", t)
 	test.testConfig(t)
 }
+
 func TestValidateCleanTokenAuthInfo(t *testing.T) {
 	config := clientcmdapi.NewConfig()
 	config.AuthInfos["clean"] = &clientcmdapi.AuthInfo{
@@ -339,6 +367,103 @@ func TestValidateMultipleMethodsAuthInfo(t *testing.T) {
 	test.testConfig(t)
 }
 
+func TestValidateAuthInfoExec(t *testing.T) {
+	config := clientcmdapi.NewConfig()
+	config.AuthInfos["user"] = &clientcmdapi.AuthInfo{
+		Exec: &clientcmdapi.ExecConfig{
+			Command:    "/bin/example",
+			APIVersion: "clientauthentication.k8s.io/v1alpha1",
+			Args:       []string{"hello", "world"},
+			Env: []clientcmdapi.ExecEnvVar{
+				{Name: "foo", Value: "bar"},
+			},
+		},
+	}
+	test := configValidationTest{
+		config: config,
+	}
+
+	test.testAuthInfo("user", t)
+	test.testConfig(t)
+}
+
+func TestValidateAuthInfoExecNoVersion(t *testing.T) {
+	config := clientcmdapi.NewConfig()
+	config.AuthInfos["user"] = &clientcmdapi.AuthInfo{
+		Exec: &clientcmdapi.ExecConfig{
+			Command: "/bin/example",
+		},
+	}
+	test := configValidationTest{
+		config: config,
+		expectedErrorSubstring: []string{
+			"apiVersion must be specified for user to use exec authentication plugin",
+		},
+	}
+
+	test.testAuthInfo("user", t)
+	test.testConfig(t)
+}
+
+func TestValidateAuthInfoExecNoCommand(t *testing.T) {
+	config := clientcmdapi.NewConfig()
+	config.AuthInfos["user"] = &clientcmdapi.AuthInfo{
+		Exec: &clientcmdapi.ExecConfig{
+			APIVersion: "clientauthentication.k8s.io/v1alpha1",
+		},
+	}
+	test := configValidationTest{
+		config: config,
+		expectedErrorSubstring: []string{
+			"command must be specified for user to use exec authentication plugin",
+		},
+	}
+
+	test.testAuthInfo("user", t)
+	test.testConfig(t)
+}
+
+func TestValidateAuthInfoExecWithAuthProvider(t *testing.T) {
+	config := clientcmdapi.NewConfig()
+	config.AuthInfos["user"] = &clientcmdapi.AuthInfo{
+		AuthProvider: &clientcmdapi.AuthProviderConfig{
+			Name: "oidc",
+		},
+		Exec: &clientcmdapi.ExecConfig{
+			Command:    "/bin/example",
+			APIVersion: "clientauthentication.k8s.io/v1alpha1",
+		},
+	}
+	test := configValidationTest{
+		config: config,
+		expectedErrorSubstring: []string{
+			"authProvider cannot be provided in combination with an exec plugin for user",
+		},
+	}
+
+	test.testAuthInfo("user", t)
+	test.testConfig(t)
+}
+
+func TestValidateAuthInfoExecNoEnv(t *testing.T) {
+	config := clientcmdapi.NewConfig()
+	config.AuthInfos["user"] = &clientcmdapi.AuthInfo{
+		Exec: &clientcmdapi.ExecConfig{
+			Command:    "/bin/example",
+			APIVersion: "clientauthentication.k8s.io/v1alpha1",
+			Env: []clientcmdapi.ExecEnvVar{
+				{Name: "foo", Value: ""},
+			},
+		},
+	}
+	test := configValidationTest{
+		config: config,
+	}
+
+	test.testAuthInfo("user", t)
+	test.testConfig(t)
+}
+
 type configValidationTest struct {
 	config                 *clientcmdapi.Config
 	expectedErrorSubstring []string
@@ -363,6 +488,7 @@ func (c configValidationTest) testContext(contextName string, t *testing.T) {
 		}
 	}
 }
+
 func (c configValidationTest) testConfirmUsable(contextName string, t *testing.T) {
 	err := ConfirmUsable(*c.config, contextName)
 
@@ -382,6 +508,7 @@ func (c configValidationTest) testConfirmUsable(contextName string, t *testing.T
 		}
 	}
 }
+
 func (c configValidationTest) testConfig(t *testing.T) {
 	err := Validate(*c.config)
 
@@ -404,6 +531,7 @@ func (c configValidationTest) testConfig(t *testing.T) {
 		}
 	}
 }
+
 func (c configValidationTest) testCluster(clusterName string, t *testing.T) {
 	errs := validateClusterInfo(clusterName, *c.config.Clusters[clusterName])
 
@@ -441,5 +569,102 @@ func (c configValidationTest) testAuthInfo(authInfoName string, t *testing.T) {
 		if len(errs) != 0 {
 			t.Errorf("Unexpected error: %v", utilerrors.NewAggregate(errs))
 		}
+	}
+}
+
+type alwaysMatchingError struct{}
+
+func (_ alwaysMatchingError) Error() string {
+	return "error"
+}
+
+func (_ alwaysMatchingError) Is(_ error) bool {
+	return true
+}
+
+type someError struct{ msg string }
+
+func (se someError) Error() string {
+	if se.msg != "" {
+		return se.msg
+	}
+	return "err"
+}
+
+func TestErrConfigurationInvalidWithErrorsIs(t *testing.T) {
+	testCases := []struct {
+		name         string
+		err          error
+		matchAgainst error
+		expectMatch  bool
+	}{
+		{
+			name:         "no match",
+			err:          errConfigurationInvalid{errors.New("my-error"), errors.New("my-other-error")},
+			matchAgainst: fmt.Errorf("no entry %s", "here"),
+		},
+		{
+			name:         "match via .Is()",
+			err:          errConfigurationInvalid{errors.New("forbidden"), alwaysMatchingError{}},
+			matchAgainst: errors.New("unauthorized"),
+			expectMatch:  true,
+		},
+		{
+			name:         "match via equality",
+			err:          errConfigurationInvalid{errors.New("err"), someError{}},
+			matchAgainst: someError{},
+			expectMatch:  true,
+		},
+		{
+			name:         "match via nested aggregate",
+			err:          errConfigurationInvalid{errors.New("closed today"), errConfigurationInvalid{errConfigurationInvalid{someError{}}}},
+			matchAgainst: someError{},
+			expectMatch:  true,
+		},
+		{
+			name:         "match via wrapped aggregate",
+			err:          fmt.Errorf("wrap: %w", errConfigurationInvalid{errors.New("err"), someError{}}),
+			matchAgainst: someError{},
+			expectMatch:  true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := errors.Is(tc.err, tc.matchAgainst)
+			if result != tc.expectMatch {
+				t.Errorf("expected match: %t, got match: %t", tc.expectMatch, result)
+			}
+		})
+	}
+}
+
+type accessTrackingError struct {
+	wasAccessed bool
+}
+
+func (accessTrackingError) Error() string {
+	return "err"
+}
+
+func (ate *accessTrackingError) Is(_ error) bool {
+	ate.wasAccessed = true
+	return true
+}
+
+var _ error = &accessTrackingError{}
+
+func TestErrConfigurationInvalidWithErrorsIsShortCircuitsOnFirstMatch(t *testing.T) {
+	errC := errConfigurationInvalid{&accessTrackingError{}, &accessTrackingError{}}
+	_ = errors.Is(errC, &accessTrackingError{})
+
+	var numAccessed int
+	for _, err := range errC {
+		if ate := err.(*accessTrackingError); ate.wasAccessed {
+			numAccessed++
+		}
+	}
+	if numAccessed != 1 {
+		t.Errorf("expected exactly one error to get accessed, got %d", numAccessed)
 	}
 }

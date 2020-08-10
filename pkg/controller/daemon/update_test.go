@@ -19,120 +19,208 @@ package daemon
 import (
 	"testing"
 
+	apps "k8s.io/api/apps/v1"
 	"k8s.io/api/core/v1"
-	extensions "k8s.io/api/extensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
 
 func TestDaemonSetUpdatesPods(t *testing.T) {
 	ds := newDaemonSet("foo")
-	manager, podControl, _ := newTestController(ds)
+	manager, podControl, _, err := newTestController(ds)
+	if err != nil {
+		t.Fatalf("error creating DaemonSets controller: %v", err)
+	}
 	maxUnavailable := 2
 	addNodes(manager.nodeStore, 0, 5, nil)
-	manager.dsStore.Add(ds)
-	syncAndValidateDaemonSets(t, manager, ds, podControl, 5, 0, 0)
+	err = manager.dsStore.Add(ds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = syncAndValidateDaemonSets(manager, ds, podControl, 5, 0, 0)
+	if err != nil {
+		t.Error(err)
+	}
 	markPodsReady(podControl.podStore)
 
 	ds.Spec.Template.Spec.Containers[0].Image = "foo2/bar2"
-	ds.Spec.UpdateStrategy.Type = extensions.RollingUpdateDaemonSetStrategyType
+	ds.Spec.UpdateStrategy.Type = apps.RollingUpdateDaemonSetStrategyType
 	intStr := intstr.FromInt(maxUnavailable)
-	ds.Spec.UpdateStrategy.RollingUpdate = &extensions.RollingUpdateDaemonSet{MaxUnavailable: &intStr}
-	ds.Spec.TemplateGeneration++
-	manager.dsStore.Update(ds)
+	ds.Spec.UpdateStrategy.RollingUpdate = &apps.RollingUpdateDaemonSet{MaxUnavailable: &intStr}
+	err = manager.dsStore.Update(ds)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	clearExpectations(t, manager, ds, podControl)
-	syncAndValidateDaemonSets(t, manager, ds, podControl, 0, maxUnavailable, 0)
+	err = syncAndValidateDaemonSets(manager, ds, podControl, 0, maxUnavailable, 0)
+	if err != nil {
+		t.Error(err)
+	}
 	clearExpectations(t, manager, ds, podControl)
-	syncAndValidateDaemonSets(t, manager, ds, podControl, maxUnavailable, 0, 0)
+	err = syncAndValidateDaemonSets(manager, ds, podControl, maxUnavailable, 0, 0)
+	if err != nil {
+		t.Error(err)
+	}
 	markPodsReady(podControl.podStore)
 
 	clearExpectations(t, manager, ds, podControl)
-	syncAndValidateDaemonSets(t, manager, ds, podControl, 0, maxUnavailable, 0)
+	err = syncAndValidateDaemonSets(manager, ds, podControl, 0, maxUnavailable, 0)
+	if err != nil {
+		t.Error(err)
+	}
 	clearExpectations(t, manager, ds, podControl)
-	syncAndValidateDaemonSets(t, manager, ds, podControl, maxUnavailable, 0, 0)
+	err = syncAndValidateDaemonSets(manager, ds, podControl, maxUnavailable, 0, 0)
+	if err != nil {
+		t.Error(err)
+	}
 	markPodsReady(podControl.podStore)
 
 	clearExpectations(t, manager, ds, podControl)
-	syncAndValidateDaemonSets(t, manager, ds, podControl, 0, 1, 0)
+	err = syncAndValidateDaemonSets(manager, ds, podControl, 0, 1, 0)
+	if err != nil {
+		t.Error(err)
+	}
 	clearExpectations(t, manager, ds, podControl)
-	syncAndValidateDaemonSets(t, manager, ds, podControl, 1, 0, 0)
+	err = syncAndValidateDaemonSets(manager, ds, podControl, 1, 0, 0)
+	if err != nil {
+		t.Error(err)
+	}
 	markPodsReady(podControl.podStore)
 
 	clearExpectations(t, manager, ds, podControl)
-	syncAndValidateDaemonSets(t, manager, ds, podControl, 0, 0, 0)
+	err = syncAndValidateDaemonSets(manager, ds, podControl, 0, 0, 0)
+	if err != nil {
+		t.Error(err)
+	}
 	clearExpectations(t, manager, ds, podControl)
 }
 
 func TestDaemonSetUpdatesWhenNewPosIsNotReady(t *testing.T) {
 	ds := newDaemonSet("foo")
-	manager, podControl, _ := newTestController(ds)
+	manager, podControl, _, err := newTestController(ds)
+	if err != nil {
+		t.Fatalf("error creating DaemonSets controller: %v", err)
+	}
 	maxUnavailable := 3
 	addNodes(manager.nodeStore, 0, 5, nil)
-	manager.dsStore.Add(ds)
-	syncAndValidateDaemonSets(t, manager, ds, podControl, 5, 0, 0)
+	err = manager.dsStore.Add(ds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = syncAndValidateDaemonSets(manager, ds, podControl, 5, 0, 0)
+	if err != nil {
+		t.Error(err)
+	}
 	markPodsReady(podControl.podStore)
 
 	ds.Spec.Template.Spec.Containers[0].Image = "foo2/bar2"
-	ds.Spec.UpdateStrategy.Type = extensions.RollingUpdateDaemonSetStrategyType
+	ds.Spec.UpdateStrategy.Type = apps.RollingUpdateDaemonSetStrategyType
 	intStr := intstr.FromInt(maxUnavailable)
-	ds.Spec.UpdateStrategy.RollingUpdate = &extensions.RollingUpdateDaemonSet{MaxUnavailable: &intStr}
-	ds.Spec.TemplateGeneration++
-	manager.dsStore.Update(ds)
+	ds.Spec.UpdateStrategy.RollingUpdate = &apps.RollingUpdateDaemonSet{MaxUnavailable: &intStr}
+	err = manager.dsStore.Update(ds)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// new pods are not ready numUnavailable == maxUnavailable
 	clearExpectations(t, manager, ds, podControl)
-	syncAndValidateDaemonSets(t, manager, ds, podControl, 0, maxUnavailable, 0)
+	err = syncAndValidateDaemonSets(manager, ds, podControl, 0, maxUnavailable, 0)
+	if err != nil {
+		t.Error(err)
+	}
 	clearExpectations(t, manager, ds, podControl)
-	syncAndValidateDaemonSets(t, manager, ds, podControl, maxUnavailable, 0, 0)
+	err = syncAndValidateDaemonSets(manager, ds, podControl, maxUnavailable, 0, 0)
+	if err != nil {
+		t.Error(err)
+	}
 
 	clearExpectations(t, manager, ds, podControl)
-	syncAndValidateDaemonSets(t, manager, ds, podControl, 0, 0, 0)
+	err = syncAndValidateDaemonSets(manager, ds, podControl, 0, 0, 0)
+	if err != nil {
+		t.Error(err)
+	}
 	clearExpectations(t, manager, ds, podControl)
 }
 
 func TestDaemonSetUpdatesAllOldPodsNotReady(t *testing.T) {
 	ds := newDaemonSet("foo")
-	manager, podControl, _ := newTestController(ds)
+	manager, podControl, _, err := newTestController(ds)
+	if err != nil {
+		t.Fatalf("error creating DaemonSets controller: %v", err)
+	}
 	maxUnavailable := 3
 	addNodes(manager.nodeStore, 0, 5, nil)
-	manager.dsStore.Add(ds)
-	syncAndValidateDaemonSets(t, manager, ds, podControl, 5, 0, 0)
+	err = manager.dsStore.Add(ds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = syncAndValidateDaemonSets(manager, ds, podControl, 5, 0, 0)
+	if err != nil {
+		t.Error(err)
+	}
 
 	ds.Spec.Template.Spec.Containers[0].Image = "foo2/bar2"
-	ds.Spec.UpdateStrategy.Type = extensions.RollingUpdateDaemonSetStrategyType
+	ds.Spec.UpdateStrategy.Type = apps.RollingUpdateDaemonSetStrategyType
 	intStr := intstr.FromInt(maxUnavailable)
-	ds.Spec.UpdateStrategy.RollingUpdate = &extensions.RollingUpdateDaemonSet{MaxUnavailable: &intStr}
-	ds.Spec.TemplateGeneration++
-	manager.dsStore.Update(ds)
+	ds.Spec.UpdateStrategy.RollingUpdate = &apps.RollingUpdateDaemonSet{MaxUnavailable: &intStr}
+	err = manager.dsStore.Update(ds)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// all old pods are unavailable so should be removed
 	clearExpectations(t, manager, ds, podControl)
-	syncAndValidateDaemonSets(t, manager, ds, podControl, 0, 5, 0)
+	err = syncAndValidateDaemonSets(manager, ds, podControl, 0, 5, 0)
+	if err != nil {
+		t.Error(err)
+	}
 	clearExpectations(t, manager, ds, podControl)
-	syncAndValidateDaemonSets(t, manager, ds, podControl, 5, 0, 0)
+	err = syncAndValidateDaemonSets(manager, ds, podControl, 5, 0, 0)
+	if err != nil {
+		t.Error(err)
+	}
 
 	clearExpectations(t, manager, ds, podControl)
-	syncAndValidateDaemonSets(t, manager, ds, podControl, 0, 0, 0)
+	err = syncAndValidateDaemonSets(manager, ds, podControl, 0, 0, 0)
+	if err != nil {
+		t.Error(err)
+	}
 	clearExpectations(t, manager, ds, podControl)
 }
 
 func TestDaemonSetUpdatesNoTemplateChanged(t *testing.T) {
 	ds := newDaemonSet("foo")
-	manager, podControl, _ := newTestController(ds)
+	manager, podControl, _, err := newTestController(ds)
+	if err != nil {
+		t.Fatalf("error creating DaemonSets controller: %v", err)
+	}
 	maxUnavailable := 3
 	addNodes(manager.nodeStore, 0, 5, nil)
-	manager.dsStore.Add(ds)
-	syncAndValidateDaemonSets(t, manager, ds, podControl, 5, 0, 0)
+	err = manager.dsStore.Add(ds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = syncAndValidateDaemonSets(manager, ds, podControl, 5, 0, 0)
+	if err != nil {
+		t.Error(err)
+	}
 
-	ds.Spec.UpdateStrategy.Type = extensions.RollingUpdateDaemonSetStrategyType
+	ds.Spec.UpdateStrategy.Type = apps.RollingUpdateDaemonSetStrategyType
 	intStr := intstr.FromInt(maxUnavailable)
-	ds.Spec.UpdateStrategy.RollingUpdate = &extensions.RollingUpdateDaemonSet{MaxUnavailable: &intStr}
-	manager.dsStore.Update(ds)
+	ds.Spec.UpdateStrategy.RollingUpdate = &apps.RollingUpdateDaemonSet{MaxUnavailable: &intStr}
+	err = manager.dsStore.Update(ds)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// template is not changed no pod should be removed
 	clearExpectations(t, manager, ds, podControl)
-	syncAndValidateDaemonSets(t, manager, ds, podControl, 0, 0, 0)
+	err = syncAndValidateDaemonSets(manager, ds, podControl, 0, 0, 0)
+	if err != nil {
+		t.Error(err)
+	}
 	clearExpectations(t, manager, ds, podControl)
 }
 
@@ -140,7 +228,7 @@ func TestGetUnavailableNumbers(t *testing.T) {
 	cases := []struct {
 		name           string
 		Manager        *daemonSetsController
-		ds             *extensions.DaemonSet
+		ds             *apps.DaemonSet
 		nodeToPods     map[string][]*v1.Pod
 		maxUnavailable int
 		numUnavailable int
@@ -149,13 +237,16 @@ func TestGetUnavailableNumbers(t *testing.T) {
 		{
 			name: "No nodes",
 			Manager: func() *daemonSetsController {
-				manager, _, _ := newTestController()
+				manager, _, _, err := newTestController()
+				if err != nil {
+					t.Fatalf("error creating DaemonSets controller: %v", err)
+				}
 				return manager
 			}(),
-			ds: func() *extensions.DaemonSet {
+			ds: func() *apps.DaemonSet {
 				ds := newDaemonSet("x")
 				intStr := intstr.FromInt(0)
-				ds.Spec.UpdateStrategy.RollingUpdate = &extensions.RollingUpdateDaemonSet{MaxUnavailable: &intStr}
+				ds.Spec.UpdateStrategy.RollingUpdate = &apps.RollingUpdateDaemonSet{MaxUnavailable: &intStr}
 				return ds
 			}(),
 			nodeToPods:     make(map[string][]*v1.Pod),
@@ -165,14 +256,17 @@ func TestGetUnavailableNumbers(t *testing.T) {
 		{
 			name: "Two nodes with ready pods",
 			Manager: func() *daemonSetsController {
-				manager, _, _ := newTestController()
+				manager, _, _, err := newTestController()
+				if err != nil {
+					t.Fatalf("error creating DaemonSets controller: %v", err)
+				}
 				addNodes(manager.nodeStore, 0, 2, nil)
 				return manager
 			}(),
-			ds: func() *extensions.DaemonSet {
+			ds: func() *apps.DaemonSet {
 				ds := newDaemonSet("x")
 				intStr := intstr.FromInt(1)
-				ds.Spec.UpdateStrategy.RollingUpdate = &extensions.RollingUpdateDaemonSet{MaxUnavailable: &intStr}
+				ds.Spec.UpdateStrategy.RollingUpdate = &apps.RollingUpdateDaemonSet{MaxUnavailable: &intStr}
 				return ds
 			}(),
 			nodeToPods: func() map[string][]*v1.Pod {
@@ -191,14 +285,17 @@ func TestGetUnavailableNumbers(t *testing.T) {
 		{
 			name: "Two nodes, one node without pods",
 			Manager: func() *daemonSetsController {
-				manager, _, _ := newTestController()
+				manager, _, _, err := newTestController()
+				if err != nil {
+					t.Fatalf("error creating DaemonSets controller: %v", err)
+				}
 				addNodes(manager.nodeStore, 0, 2, nil)
 				return manager
 			}(),
-			ds: func() *extensions.DaemonSet {
+			ds: func() *apps.DaemonSet {
 				ds := newDaemonSet("x")
 				intStr := intstr.FromInt(0)
-				ds.Spec.UpdateStrategy.RollingUpdate = &extensions.RollingUpdateDaemonSet{MaxUnavailable: &intStr}
+				ds.Spec.UpdateStrategy.RollingUpdate = &apps.RollingUpdateDaemonSet{MaxUnavailable: &intStr}
 				return ds
 			}(),
 			nodeToPods: func() map[string][]*v1.Pod {
@@ -214,14 +311,17 @@ func TestGetUnavailableNumbers(t *testing.T) {
 		{
 			name: "Two nodes with pods, MaxUnavailable in percents",
 			Manager: func() *daemonSetsController {
-				manager, _, _ := newTestController()
+				manager, _, _, err := newTestController()
+				if err != nil {
+					t.Fatalf("error creating DaemonSets controller: %v", err)
+				}
 				addNodes(manager.nodeStore, 0, 2, nil)
 				return manager
 			}(),
-			ds: func() *extensions.DaemonSet {
+			ds: func() *apps.DaemonSet {
 				ds := newDaemonSet("x")
 				intStr := intstr.FromString("50%")
-				ds.Spec.UpdateStrategy.RollingUpdate = &extensions.RollingUpdateDaemonSet{MaxUnavailable: &intStr}
+				ds.Spec.UpdateStrategy.RollingUpdate = &apps.RollingUpdateDaemonSet{MaxUnavailable: &intStr}
 				return ds
 			}(),
 			nodeToPods: func() map[string][]*v1.Pod {
@@ -240,14 +340,17 @@ func TestGetUnavailableNumbers(t *testing.T) {
 		{
 			name: "Two nodes with pods, MaxUnavailable in percents, pod terminating",
 			Manager: func() *daemonSetsController {
-				manager, _, _ := newTestController()
+				manager, _, _, err := newTestController()
+				if err != nil {
+					t.Fatalf("error creating DaemonSets controller: %v", err)
+				}
 				addNodes(manager.nodeStore, 0, 2, nil)
 				return manager
 			}(),
-			ds: func() *extensions.DaemonSet {
+			ds: func() *apps.DaemonSet {
 				ds := newDaemonSet("x")
 				intStr := intstr.FromString("50%")
-				ds.Spec.UpdateStrategy.RollingUpdate = &extensions.RollingUpdateDaemonSet{MaxUnavailable: &intStr}
+				ds.Spec.UpdateStrategy.RollingUpdate = &apps.RollingUpdateDaemonSet{MaxUnavailable: &intStr}
 				return ds
 			}(),
 			nodeToPods: func() map[string][]*v1.Pod {
@@ -269,7 +372,11 @@ func TestGetUnavailableNumbers(t *testing.T) {
 
 	for _, c := range cases {
 		c.Manager.dsStore.Add(c.ds)
-		maxUnavailable, numUnavailable, err := c.Manager.getUnavailableNumbers(c.ds, c.nodeToPods)
+		nodeList, err := c.Manager.nodeLister.List(labels.Everything())
+		if err != nil {
+			t.Fatalf("error listing nodes: %v", err)
+		}
+		maxUnavailable, numUnavailable, err := c.Manager.getUnavailableNumbers(c.ds, nodeList, c.nodeToPods)
 		if err != nil && c.Err != nil {
 			if c.Err != err {
 				t.Errorf("Test case: %s. Expected error: %v but got: %v", c.name, c.Err, err)

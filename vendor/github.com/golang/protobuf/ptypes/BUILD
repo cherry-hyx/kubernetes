@@ -8,12 +8,16 @@ go_library(
         "duration.go",
         "timestamp.go",
     ],
+    importmap = "k8s.io/kubernetes/vendor/github.com/golang/protobuf/ptypes",
+    importpath = "github.com/golang/protobuf/ptypes",
     visibility = ["//visibility:public"],
     deps = [
         "//vendor/github.com/golang/protobuf/proto:go_default_library",
         "//vendor/github.com/golang/protobuf/ptypes/any:go_default_library",
         "//vendor/github.com/golang/protobuf/ptypes/duration:go_default_library",
         "//vendor/github.com/golang/protobuf/ptypes/timestamp:go_default_library",
+        "//vendor/google.golang.org/protobuf/reflect/protoreflect:go_default_library",
+        "//vendor/google.golang.org/protobuf/reflect/protoregistry:go_default_library",
     ],
 )
 
@@ -31,6 +35,7 @@ filegroup(
         "//vendor/github.com/golang/protobuf/ptypes/any:all-srcs",
         "//vendor/github.com/golang/protobuf/ptypes/duration:all-srcs",
         "//vendor/github.com/golang/protobuf/ptypes/timestamp:all-srcs",
+        "//vendor/github.com/golang/protobuf/ptypes/wrappers:all-srcs",
     ],
     tags = ["automanaged"],
     visibility = ["//visibility:public"],

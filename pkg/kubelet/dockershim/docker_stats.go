@@ -1,5 +1,7 @@
+// +build !dockerless
+
 /*
-Copyright 2017 The Kubernetes Authors.
+Copyright 2019 The Kubernetes Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -17,16 +19,46 @@ limitations under the License.
 package dockershim
 
 import (
-	"fmt"
+	"context"
 
-	runtimeapi "k8s.io/kubernetes/pkg/kubelet/apis/cri/v1alpha1/runtime"
+	runtimeapi "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 )
 
-// DockerService does not implement container stats.
-func (ds *dockerService) ContainerStats(string) (*runtimeapi.ContainerStats, error) {
-	return nil, fmt.Errorf("Not implemented")
+// ContainerStats returns stats for a container stats request based on container id.
+func (ds *dockerService) ContainerStats(_ context.Context, r *runtimeapi.ContainerStatsRequest) (*runtimeapi.ContainerStatsResponse, error) {
+	stats, err := ds.getContainerStats(r.ContainerId)
+	if err != nil {
+		return nil, err
+	}
+	return &runtimeapi.ContainerStatsResponse{Stats: stats}, nil
 }
 
-func (ds *dockerService) ListContainerStats(*runtimeapi.ContainerStatsFilter) ([]*runtimeapi.ContainerStats, error) {
-	return nil, fmt.Errorf("Not implemented")
+// ListContainerStats returns stats for a list container stats request based on a filter.
+func (ds *dockerService) ListContainerStats(ctx context.Context, r *runtimeapi.ListContainerStatsRequest) (*runtimeapi.ListContainerStatsResponse, error) {
+	containerStatsFilter := r.GetFilter()
+	filter := &runtimeapi.ContainerFilter{}
+
+	if containerStatsFilter != nil {
+		filter.Id = containerStatsFilter.Id
+		filter.PodSandboxId = containerStatsFilter.PodSandboxId
+		filter.LabelSelector = containerStatsFilter.LabelSelector
+	}
+
+	listResp, err := ds.ListContainers(ctx, &runtimeapi.ListContainersRequest{Filter: filter})
+	if err != nil {
+		return nil, err
+	}
+
+	var stats []*runtimeapi.ContainerStats
+	for _, container := range listResp.Containers {
+		containerStats, err := ds.getContainerStats(container.Id)
+		if err != nil {
+			return nil, err
+		}
+		if containerStats != nil {
+			stats = append(stats, containerStats)
+		}
+	}
+
+	return &runtimeapi.ListContainerStatsResponse{Stats: stats}, nil
 }

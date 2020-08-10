@@ -22,15 +22,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/rest"
-	"k8s.io/kubernetes/pkg/api"
 	"k8s.io/kubernetes/pkg/apis/batch"
+	api "k8s.io/kubernetes/pkg/apis/core"
 )
-
-func newBool(a bool) *bool {
-	r := new(bool)
-	*r = a
-	return r
-}
 
 func TestCronJobStrategy(t *testing.T) {
 	ctx := genericapirequest.NewDefaultContext()
@@ -48,7 +42,7 @@ func TestCronJobStrategy(t *testing.T) {
 			Containers:    []api.Container{{Name: "abc", Image: "image", ImagePullPolicy: "IfNotPresent", TerminationMessagePolicy: api.TerminationMessageReadFile}},
 		},
 	}
-	scheduledJob := &batch.CronJob{
+	cronJob := &batch.CronJob{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "mycronjob",
 			Namespace: metav1.NamespaceDefault,
@@ -64,11 +58,11 @@ func TestCronJobStrategy(t *testing.T) {
 		},
 	}
 
-	Strategy.PrepareForCreate(ctx, scheduledJob)
-	if len(scheduledJob.Status.Active) != 0 {
+	Strategy.PrepareForCreate(ctx, cronJob)
+	if len(cronJob.Status.Active) != 0 {
 		t.Errorf("CronJob does not allow setting status on create")
 	}
-	errs := Strategy.Validate(ctx, scheduledJob)
+	errs := Strategy.Validate(ctx, cronJob)
 	if len(errs) != 0 {
 		t.Errorf("Unexpected error validating %v", errs)
 	}
@@ -84,11 +78,11 @@ func TestCronJobStrategy(t *testing.T) {
 	}
 
 	// ensure we do not change status
-	Strategy.PrepareForUpdate(ctx, updatedCronJob, scheduledJob)
+	Strategy.PrepareForUpdate(ctx, updatedCronJob, cronJob)
 	if updatedCronJob.Status.Active != nil {
 		t.Errorf("PrepareForUpdate should have preserved prior version status")
 	}
-	errs = Strategy.ValidateUpdate(ctx, updatedCronJob, scheduledJob)
+	errs = Strategy.ValidateUpdate(ctx, updatedCronJob, cronJob)
 	if len(errs) == 0 {
 		t.Errorf("Expected a validation error")
 	}
@@ -96,7 +90,22 @@ func TestCronJobStrategy(t *testing.T) {
 	// Make sure we correctly implement the interface.
 	// Otherwise a typo could silently change the default.
 	var gcds rest.GarbageCollectionDeleteStrategy = Strategy
-	if got, want := gcds.DefaultGarbageCollectionPolicy(), rest.OrphanDependents; got != want {
+	if got, want := gcds.DefaultGarbageCollectionPolicy(genericapirequest.NewContext()), rest.DeleteDependents; got != want {
+		t.Errorf("DefaultGarbageCollectionPolicy() = %#v, want %#v", got, want)
+	}
+
+	var (
+		v1beta1Ctx      = genericapirequest.WithRequestInfo(genericapirequest.NewContext(), &genericapirequest.RequestInfo{APIGroup: "batch", APIVersion: "v1beta1", Resource: "cronjobs"})
+		v2alpha1Ctx     = genericapirequest.WithRequestInfo(genericapirequest.NewContext(), &genericapirequest.RequestInfo{APIGroup: "batch", APIVersion: "v2alpha1", Resource: "cronjobs"})
+		otherVersionCtx = genericapirequest.WithRequestInfo(genericapirequest.NewContext(), &genericapirequest.RequestInfo{APIGroup: "batch", APIVersion: "v100", Resource: "cronjobs"})
+	)
+	if got, want := gcds.DefaultGarbageCollectionPolicy(v1beta1Ctx), rest.OrphanDependents; got != want {
+		t.Errorf("DefaultGarbageCollectionPolicy() = %#v, want %#v", got, want)
+	}
+	if got, want := gcds.DefaultGarbageCollectionPolicy(v2alpha1Ctx), rest.OrphanDependents; got != want {
+		t.Errorf("DefaultGarbageCollectionPolicy() = %#v, want %#v", got, want)
+	}
+	if got, want := gcds.DefaultGarbageCollectionPolicy(otherVersionCtx), rest.DeleteDependents; got != want {
 		t.Errorf("DefaultGarbageCollectionPolicy() = %#v, want %#v", got, want)
 	}
 }
@@ -156,10 +165,10 @@ func TestCronJobStatusStrategy(t *testing.T) {
 
 	StatusStrategy.PrepareForUpdate(ctx, newCronJob, oldCronJob)
 	if newCronJob.Status.LastScheduleTime == nil {
-		t.Errorf("CronJob status updates must allow changes to scheduledJob status")
+		t.Errorf("CronJob status updates must allow changes to cronJob status")
 	}
 	if newCronJob.Spec.Schedule != oldSchedule {
-		t.Errorf("CronJob status updates must now allow changes to scheduledJob spec")
+		t.Errorf("CronJob status updates must now allow changes to cronJob spec")
 	}
 	errs := StatusStrategy.ValidateUpdate(ctx, newCronJob, oldCronJob)
 	if len(errs) != 0 {

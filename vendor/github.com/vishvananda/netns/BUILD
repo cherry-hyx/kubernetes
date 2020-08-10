@@ -4,14 +4,13 @@ go_library(
     name = "go_default_library",
     srcs = [
         "netns.go",
+        "netns_linux.go",
         "netns_unspecified.go",
-    ] + select({
-        "@io_bazel_rules_go//go/platform:linux_amd64": [
-            "netns_linux.go",
-        ],
-        "//conditions:default": [],
-    }),
+    ],
+    importmap = "k8s.io/kubernetes/vendor/github.com/vishvananda/netns",
+    importpath = "github.com/vishvananda/netns",
     visibility = ["//visibility:public"],
+    deps = ["//vendor/golang.org/x/sys/unix:go_default_library"],
 )
 
 filegroup(

@@ -1,27 +1,35 @@
+# See the OWNERS docs at https://go.k8s.io/owners
+
 reviewers:
+  - bentheelder
   - cblecker
-  - eparis
   - fejta
-  - ixdy
-  - jbeda
+  - juanvallejo
+  - hwdef
   - lavalamp
-  - spxtr
-  - zmerlynn
+  - SataQiu
+  - spiffxp
   - sttts
-  - gmarek
+  - vishh
+  - xichengliudui
+  - mikedanese
 approvers:
+  - bentheelder
   - cblecker
   - deads2k
-  - eparis
-  - fabianofranz
+  - dims # for local-up-cluster related files
   - fejta
+  - lavalamp
+  - liggitt
+  - pwittrock
+  - SataQiu
+  - soltysh # for sig-cli related stuff
+  - spiffxp
+  - sttts
+  - vishh
+  - mikedanese
+emeritus_approvers:
+  - eparis
   - ixdy
   - jbeda
-  - lavalamp
-  - madhusudancs
-  - pwittrock
-  - shashidharatd
-  - spxtr
   - zmerlynn
-  - sttts
-  - gmarek
